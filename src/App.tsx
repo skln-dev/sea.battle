@@ -148,6 +148,18 @@ function HomePage() {
   const online = store.getOnlineCount();
   const yesterday = store.getYesterdayCount();
   const total = store.getTotalCount();
+  const [announcements, setAnnouncements] = useState(store.getAnnouncements());
+  const [tournaments, setTournaments] = useState(store.getTournaments());
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setAnnouncements(store.getAnnouncements());
+      setTournaments(store.getTournaments());
+    }, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const activeTournaments = tournaments.filter(t => t.status === 'active' || t.status === 'upcoming');
 
   return (
     <FadeIn className="space-y-8">
@@ -164,8 +176,72 @@ function HomePage() {
         <StatCard icon={<Crown className="w-8 h-8 text-purple-400" />} label="За всё время" value={total.toLocaleString()} color="purple" />
       </div>
 
+      {/* Announcements */}
+      {announcements.length > 0 && (
+        <div className="max-w-3xl mx-auto space-y-3">
+          <h2 className="text-xl font-bold text-cyan-400">📢 Объявления</h2>
+          {announcements.slice(0, 5).map(a => (
+            <div key={a.id} className={`rounded-xl p-4 border ${
+              a.type === 'important' ? 'bg-red-900/20 border-red-700' :
+              a.type === 'tournament' ? 'bg-purple-900/20 border-purple-700' :
+              a.type === 'match' ? 'bg-blue-900/20 border-blue-700' :
+              'bg-slate-800/50 border-slate-700'
+            }`}>
+              <div className="flex items-center gap-2 mb-1">
+                <span className={`text-xs px-2 py-0.5 rounded ${
+                  a.type === 'important' ? 'bg-red-600/30 text-red-400' :
+                  a.type === 'tournament' ? 'bg-purple-600/30 text-purple-400' :
+                  a.type === 'match' ? 'bg-blue-600/30 text-blue-400' :
+                  'bg-slate-600 text-slate-400'
+                }`}>
+                  {a.type === 'important' ? '🔴 Важно' : a.type === 'tournament' ? '🏆 Турнир' : a.type === 'match' ? '⚔️ Матч' : 'ℹ️ Инфо'}
+                </span>
+                <span className="text-xs text-slate-500">{new Date(a.createdAt).toLocaleDateString()}</span>
+              </div>
+              <h3 className="font-bold">{a.title}</h3>
+              <p className="text-sm text-slate-300 mt-1">{a.content}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Active Tournaments */}
+      {activeTournaments.length > 0 && (
+        <div className="max-w-3xl mx-auto space-y-3">
+          <h2 className="text-xl font-bold text-cyan-400">🏆 Активные турниры и матчи</h2>
+          {activeTournaments.map(t => {
+            const endTime = new Date(t.endTime).getTime();
+            const now = Date.now();
+            const diff = endTime - now;
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+            
+            return (
+              <div key={t.id} className="bg-purple-900/20 border border-purple-700 rounded-xl p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="font-bold text-lg">{t.name}</h3>
+                  <span className={`text-xs px-2 py-0.5 rounded ${t.status === 'active' ? 'bg-green-600/30 text-green-400' : 'bg-yellow-600/30 text-yellow-400'}`}>
+                    {t.status === 'active' ? '🟢 Активен' : '🟡 Скоро'}
+                  </span>
+                </div>
+                <p className="text-sm text-slate-300 mb-2">{t.description}</p>
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="text-slate-400">Участников: {t.participants.length}</span>
+                  {diff > 0 && (
+                    <span className="text-cyan-400 font-mono">
+                      ⏰ {days > 0 ? `${days}д ` : ''}{hours}ч {minutes}мин
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto">
-        <QuickLink to="/rooms" icon={<Gamepad2 className="w-6 h-6" />} title="Играть" desc="Создать или найти комнату" />
+        <QuickLink to="/rooms" icon={<Gamepad2 className="w-6 h-6" />} title="Играть" desc="Комнаты по школам" />
         <QuickLink to="/rating" icon={<Trophy className="w-6 h-6" />} title="Рейтинг" desc="Таблица лидеров" />
         <QuickLink to="/clans" icon={<Shield className="w-6 h-6" />} title="Кланы" desc="Объединяйся с друзьями" />
         <QuickLink to="/support" icon={<Mail className="w-6 h-6" />} title="Поддержка" desc="Связь с админом" />
@@ -304,8 +380,13 @@ function RegisterPage({ onRegister }: { onRegister: () => void }) {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [nickname, setNickname] = useState('');
+  const [schoolId, setSchoolId] = useState('');
+  const [showSchoolRequest, setShowSchoolRequest] = useState(false);
+  const [schoolRequest, setSchoolRequest] = useState({ name: '', number: '', city: '' });
   const [error, setError] = useState('');
   const navigate = useNavigate();
+
+  const schools = store.getSchools().filter(s => s.approved);
 
   const handleRegister = () => {
     setError('');
@@ -321,12 +402,36 @@ function RegisterPage({ onRegister }: { onRegister: () => void }) {
       backgroundColor: '#0f172a', registeredAt: new Date().toISOString(),
       lastLogin: new Date().toISOString(), loginHistory: [new Date().toISOString()],
       warnings: [],
+      schoolId: schoolId || undefined,
     };
     store.saveUser(user);
     store.setCurrentUser(user.id);
     store.incrementTotalCount();
     onRegister();
     navigate('/');
+  };
+
+  const handleSchoolRequest = () => {
+    if (!schoolRequest.name || !schoolRequest.number || !schoolRequest.city) {
+      setError('Заполните все поля для заявки на школу');
+      return;
+    }
+    const school = {
+      id: uuidv4(),
+      name: schoolRequest.name,
+      region: '',
+      area: '',
+      city: schoolRequest.city,
+      address: '',
+      buildingNumber: schoolRequest.number,
+      approved: false,
+      createdAt: new Date().toISOString(),
+      students: [],
+    };
+    store.saveSchool(school as any);
+    setShowSchoolRequest(false);
+    setSchoolRequest({ name: '', number: '', city: '' });
+    alert('Заявка на создание школы отправлена! Ожидает одобрения администратором.');
   };
 
   return (
@@ -337,6 +442,29 @@ function RegisterPage({ onRegister }: { onRegister: () => void }) {
           <input type="text" value={phone} onChange={e => setPhone(e.target.value)} placeholder="Номер телефона" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-cyan-500 focus:outline-none" />
           <input type="text" value={nickname} onChange={e => setNickname(e.target.value)} placeholder="Никнейм" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-cyan-500 focus:outline-none" />
           <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Пароль (мин. 5 символов)" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-cyan-500 focus:outline-none" />
+          
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">Школа (необязательно)</label>
+            <select value={schoolId} onChange={e => setSchoolId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg focus:border-cyan-500 focus:outline-none text-sm">
+              <option value="">-- Не указывать --</option>
+              {schools.map(s => (
+                <option key={s.id} value={s.id}>{s.name} ({s.city})</option>
+              ))}
+            </select>
+            <button onClick={() => setShowSchoolRequest(!showSchoolRequest)} className="text-xs text-cyan-400 hover:underline mt-1">
+              Нет моей школы? Подать заявку на создание
+            </button>
+          </div>
+
+          {showSchoolRequest && (
+            <div className="bg-slate-700/50 rounded-lg p-3 space-y-2">
+              <input value={schoolRequest.name} onChange={e => setSchoolRequest({ ...schoolRequest, name: e.target.value })} placeholder="Название школы" className="w-full px-2 py-1 bg-slate-600 border border-slate-500 rounded text-sm" />
+              <input value={schoolRequest.number} onChange={e => setSchoolRequest({ ...schoolRequest, number: e.target.value })} placeholder="Номер школы" className="w-full px-2 py-1 bg-slate-600 border border-slate-500 rounded text-sm" />
+              <input value={schoolRequest.city} onChange={e => setSchoolRequest({ ...schoolRequest, city: e.target.value })} placeholder="Город/Село" className="w-full px-2 py-1 bg-slate-600 border border-slate-500 rounded text-sm" />
+              <button onClick={handleSchoolRequest} className="w-full px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-sm">Отправить заявку</button>
+            </div>
+          )}
+
           {error && <p className="text-red-400 text-sm">{error}</p>}
           <button onClick={handleRegister} className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg font-medium transition">Зарегистрироваться</button>
           <p className="text-center text-sm text-slate-400">
@@ -534,22 +662,30 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
   const [roomName, setRoomName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
   const [roomPassword, setRoomPassword] = useState('');
+  const [selectedSchoolId, setSelectedSchoolId] = useState('');
   const navigate = useNavigate();
+
+  const schools = store.getSchools().filter(s => s.approved);
 
   useEffect(() => { setRooms(store.getRooms()); }, []);
 
   const createRoom = () => {
-    if (!currentUser || !roomName) return;
+    if (!currentUser || !roomName || !selectedSchoolId) {
+      alert('Выберите школу и введите название комнаты');
+      return;
+    }
     const room: Room = {
       id: uuidv4(), name: roomName, creatorId: currentUser.id,
       players: [currentUser.id], maxPlayers: 2, isPrivate,
       password: isPrivate ? roomPassword : undefined,
       createdAt: new Date().toISOString(),
+      schoolId: selectedSchoolId,
     };
     store.saveRoom(room);
     setRooms(store.getRooms());
     setShowCreate(false);
     setRoomName('');
+    setSelectedSchoolId('');
   };
 
   const startGame = (p1Id: string, p2Id: string) => {
@@ -581,6 +717,14 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
     startGame(currentUser.id, otherPlayer);
   };
 
+  // Group rooms by school
+  const roomsBySchool = rooms.reduce((acc, room) => {
+    const schoolId = room.schoolId || 'other';
+    if (!acc[schoolId]) acc[schoolId] = [];
+    acc[schoolId].push(room);
+    return acc;
+  }, {} as Record<string, Room[]>);
+
   return (
     <FadeIn className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -595,7 +739,13 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
 
       {showCreate && (
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 space-y-3">
-          <input value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="Название комнаты" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm focus:border-cyan-500 focus:outline-none" />
+          <select value={selectedSchoolId} onChange={e => setSelectedSchoolId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
+            <option value="">-- Выберите школу --</option>
+            {schools.map(s => (
+              <option key={s.id} value={s.id}>{s.name} ({s.city})</option>
+            ))}
+          </select>
+          <input value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="Название комнаты" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={isPrivate} onChange={e => setIsPrivate(e.target.checked)} /> Приватная
           </label>
@@ -607,17 +757,28 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
         </div>
       )}
 
-      <div className="space-y-3">
-        {rooms.length === 0 && <p className="text-slate-500 text-center py-8">Нет активных комнат</p>}
-        {rooms.map(room => {
-          const creator = store.getUserById(room.creatorId);
+      <div className="space-y-6">
+        {Object.keys(roomsBySchool).length === 0 && <p className="text-slate-500 text-center py-8">Нет активных комнат</p>}
+        {Object.entries(roomsBySchool).map(([schoolId, schoolRooms]) => {
+          const school = schools.find(s => s.id === schoolId);
           return (
-            <div key={room.id} className="flex items-center justify-between bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-              <div>
-                <div className="font-medium">{room.name} {room.isPrivate && <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded">🔒</span>}</div>
-                <div className="text-sm text-slate-400">Создал: {creator?.nickname || '???'} • {room.players.length}/{room.maxPlayers}</div>
-              </div>
-              <button onClick={() => joinRoom(room)} disabled={!currentUser} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 rounded-lg text-sm">Войти</button>
+            <div key={schoolId} className="space-y-3">
+              <h3 className="text-lg font-bold text-cyan-400 flex items-center gap-2">
+                <School className="w-5 h-5" />
+                {school ? `${school.name} (${school.city})` : 'Другие'}
+              </h3>
+              {schoolRooms.map(room => {
+                const creator = store.getUserById(room.creatorId);
+                return (
+                  <div key={room.id} className="flex items-center justify-between bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+                    <div>
+                      <div className="font-medium">{room.name} {room.isPrivate && <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded">🔒</span>}</div>
+                      <div className="text-sm text-slate-400">Создал: {creator?.nickname || '???'} • {room.players.length}/{room.maxPlayers}</div>
+                    </div>
+                    <button onClick={() => joinRoom(room)} disabled={!currentUser} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 rounded-lg text-sm">Войти</button>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
@@ -1623,7 +1784,7 @@ function SupportPage({ currentUser, refreshUser }: { currentUser: User | null; r
 
 // ============ ADMIN PAGE ============
 function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
-  const [tab, setTab] = useState<'settings' | 'faq' | 'schools' | 'federations' | 'users' | 'tickets' | 'chat' | 'resets'>('settings');
+  const [tab, setTab] = useState<'settings' | 'faq' | 'schools' | 'federations' | 'users' | 'tickets' | 'chat' | 'resets' | 'announcements' | 'tournaments'>('settings');
   const [settings, setSettings] = useState<AdminSettings>(store.getSettings());
   const [resetRequests, setResetRequests] = useState(store.getResetRequests());
   const [pendingSchools, setPendingSchools] = useState(store.getSchools().filter(s => !s.approved));
@@ -1636,6 +1797,17 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   const [feds, setFeds] = useState(store.getFederations());
   const [clans, setClans] = useState(store.getClans());
   const [selectedFed, setSelectedFed] = useState<Federation | null>(null);
+  
+  // Announcements
+  const [announcements, setAnnouncements] = useState(store.getAnnouncements());
+  const [annForm, setAnnForm] = useState({ title: '', content: '', type: 'info' as 'info' | 'tournament' | 'match' | 'important' });
+  
+  // Tournaments
+  const [tournaments, setTournaments] = useState(store.getTournaments());
+  const [tournForm, setTournForm] = useState({
+    name: '', description: '', type: 'tournament' as 'tournament' | 'match' | 'info',
+    startTime: '', endTime: '', schoolId: ''
+  });
 
   // FAQ form
   const [faqTitle, setFaqTitle] = useState('');
@@ -1848,9 +2020,61 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
     setResetRequests(store.getResetRequests());
   };
 
+  // Announcements
+  const createAnnouncement = () => {
+    if (!annForm.title || !annForm.content) return;
+    const ann = {
+      id: uuidv4(),
+      title: annForm.title,
+      content: annForm.content,
+      type: annForm.type,
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser.id,
+    };
+    store.saveAnnouncement(ann);
+    setAnnouncements(store.getAnnouncements());
+    setAnnForm({ title: '', content: '', type: 'info' });
+  };
+  const deleteAnnouncement = (id: string) => {
+    store.deleteAnnouncement(id);
+    setAnnouncements(store.getAnnouncements());
+  };
+
+  // Tournaments
+  const createTournament = () => {
+    if (!tournForm.name || !tournForm.startTime || !tournForm.endTime) return;
+    const tourn = {
+      id: uuidv4(),
+      name: tournForm.name,
+      description: tournForm.description,
+      type: tournForm.type,
+      startTime: tournForm.startTime,
+      endTime: tournForm.endTime,
+      participants: [],
+      createdBy: currentUser.id,
+      status: 'upcoming' as const,
+      schoolId: tournForm.schoolId || undefined,
+    };
+    store.saveTournament(tourn);
+    setTournaments(store.getTournaments());
+    setTournForm({ name: '', description: '', type: 'tournament', startTime: '', endTime: '', schoolId: '' });
+  };
+  const deleteTournament = (id: string) => {
+    store.deleteTournament(id);
+    setTournaments(store.getTournaments());
+  };
+  const updateTournamentStatus = (id: string, status: 'upcoming' | 'active' | 'finished') => {
+    const t = store.getTournaments().find(x => x.id === id)!;
+    t.status = status;
+    store.saveTournament(t);
+    setTournaments(store.getTournaments());
+  };
+
   const tabs = [
     { id: 'settings', label: '⚙️ Настройки' },
     { id: 'users', label: '👥 Пользователи' },
+    { id: 'announcements', label: '📢 Объявления' },
+    { id: 'tournaments', label: '🏆 Турниры' },
     { id: 'faq', label: '❓ FAQ' },
     { id: 'schools', label: '🏫 Школы' },
     { id: 'federations', label: '🏛️ Федерации' },
@@ -1924,10 +2148,10 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
                       {u.nickname}
                       <span className="text-xs text-slate-500">({u.role})</span>
                       {u.banned && <span className="text-xs bg-red-600/30 text-red-400 px-2 py-0.5 rounded">ЗАБАНЕН</span>}
-                      {u.warnings.length > 0 && <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded">⚠️ {u.warnings.length}</span>}
+                      {u.warnings && u.warnings.length > 0 && <span className="text-xs bg-yellow-600/30 text-yellow-400 px-2 py-0.5 rounded">⚠️ {u.warnings.length}</span>}
                     </div>
                     <div className="text-xs text-slate-400">Тел: {u.phone} • Ур.{u.level} • {u.xp} XP</div>
-                    {u.warnings.length > 0 && (
+                    {u.warnings && u.warnings.length > 0 && (
                       <div className="text-xs text-yellow-400 mt-1">
                         {u.warnings.map(w => `• ${w.reason}`).join(' | ')}
                       </div>
@@ -2190,6 +2414,122 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* ANNOUNCEMENTS */}
+      {tab === 'announcements' && (
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold text-lg">📢 Создать объявление</h3>
+            <input value={annForm.title} onChange={e => setAnnForm({ ...annForm, title: e.target.value })} placeholder="Заголовок" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+            <textarea value={annForm.content} onChange={e => setAnnForm({ ...annForm, content: e.target.value })} placeholder="Содержание..." className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" rows={4} />
+            <select value={annForm.type} onChange={e => setAnnForm({ ...annForm, type: e.target.value as any })} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
+              <option value="info">ℹ️ Информация</option>
+              <option value="tournament">🏆 Турнир</option>
+              <option value="match">⚔️ Матч</option>
+              <option value="important">🔴 Важно</option>
+            </select>
+            <button onClick={createAnnouncement} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Опубликовать</button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold text-lg">📋 Все объявления ({announcements.length})</h3>
+            {announcements.map(a => (
+              <div key={a.id} className="bg-slate-700/50 rounded-lg p-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        a.type === 'important' ? 'bg-red-600/30 text-red-400' :
+                        a.type === 'tournament' ? 'bg-purple-600/30 text-purple-400' :
+                        a.type === 'match' ? 'bg-blue-600/30 text-blue-400' :
+                        'bg-slate-600 text-slate-400'
+                      }`}>
+                        {a.type === 'important' ? '🔴 Важно' : a.type === 'tournament' ? '🏆 Турнир' : a.type === 'match' ? '⚔️ Матч' : 'ℹ️ Инфо'}
+                      </span>
+                      <span className="text-xs text-slate-500">{new Date(a.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="font-medium">{a.title}</div>
+                    <div className="text-sm text-slate-400 mt-1">{a.content}</div>
+                  </div>
+                  <button onClick={() => deleteAnnouncement(a.id)} className="p-1.5 bg-red-600 rounded text-xs"><Trash2 className="w-3 h-3" /></button>
+                </div>
+              </div>
+            ))}
+            {announcements.length === 0 && <p className="text-slate-500 text-sm">Нет объявлений</p>}
+          </div>
+        </div>
+      )}
+
+      {/* TOURNAMENTS */}
+      {tab === 'tournaments' && (
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold text-lg">🏆 Создать турнир/матч</h3>
+            <input value={tournForm.name} onChange={e => setTournForm({ ...tournForm, name: e.target.value })} placeholder="Название" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+            <textarea value={tournForm.description} onChange={e => setTournForm({ ...tournForm, description: e.target.value })} placeholder="Описание..." className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" rows={3} />
+            <select value={tournForm.type} onChange={e => setTournForm({ ...tournForm, type: e.target.value as any })} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
+              <option value="tournament">🏆 Турнир</option>
+              <option value="match">⚔️ Матч</option>
+              <option value="info">ℹ️ Информация</option>
+            </select>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Начало</label>
+                <input type="datetime-local" value={tournForm.startTime} onChange={e => setTournForm({ ...tournForm, startTime: e.target.value })} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Окончание</label>
+                <input type="datetime-local" value={tournForm.endTime} onChange={e => setTournForm({ ...tournForm, endTime: e.target.value })} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+              </div>
+            </div>
+            <select value={tournForm.schoolId} onChange={e => setTournForm({ ...tournForm, schoolId: e.target.value })} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
+              <option value="">-- Все школы (необязательно) --</option>
+              {allSchools.filter(s => s.approved).map(s => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </select>
+            <button onClick={createTournament} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Создать</button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold text-lg">📋 Все турниры ({tournaments.length})</h3>
+            {tournaments.map(t => (
+              <div key={t.id} className="bg-slate-700/50 rounded-lg p-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        t.status === 'active' ? 'bg-green-600/30 text-green-400' :
+                        t.status === 'upcoming' ? 'bg-yellow-600/30 text-yellow-400' :
+                        'bg-slate-600 text-slate-400'
+                      }`}>
+                        {t.status === 'active' ? '🟢 Активен' : t.status === 'upcoming' ? '🟡 Скоро' : '⚪ Завершён'}
+                      </span>
+                      <span className="text-xs text-slate-500">{t.type === 'tournament' ? '🏆' : t.type === 'match' ? '⚔️' : 'ℹ️'}</span>
+                    </div>
+                    <div className="font-medium">{t.name}</div>
+                    <div className="text-sm text-slate-400 mt-1">{t.description}</div>
+                    <div className="text-xs text-slate-500 mt-1">
+                      {new Date(t.startTime).toLocaleString()} — {new Date(t.endTime).toLocaleString()}
+                    </div>
+                    <div className="text-xs text-slate-500">Участников: {t.participants.length}</div>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    {t.status === 'upcoming' && (
+                      <button onClick={() => updateTournamentStatus(t.id, 'active')} className="px-2 py-1 bg-green-600 rounded text-xs">Старт</button>
+                    )}
+                    {t.status === 'active' && (
+                      <button onClick={() => updateTournamentStatus(t.id, 'finished')} className="px-2 py-1 bg-slate-600 rounded text-xs">Завершить</button>
+                    )}
+                    <button onClick={() => deleteTournament(t.id)} className="px-2 py-1 bg-red-600 rounded text-xs"><Trash2 className="w-3 h-3" /></button>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {tournaments.length === 0 && <p className="text-slate-500 text-sm">Нет турниров</p>}
+          </div>
         </div>
       )}
     </FadeIn>

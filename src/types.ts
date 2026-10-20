@@ -109,6 +109,7 @@ export interface Room {
   isPrivate: boolean;
   password?: string;
   clanId?: string;
+  schoolId?: string;
   createdAt: string;
 }
 
@@ -194,4 +195,27 @@ export interface AdminSettings {
   xpPerWin: number;
   xpPerShot: number;
   xpPerAccuracy: number;
+}
+
+export interface Tournament {
+  id: string;
+  name: string;
+  description: string;
+  type: 'tournament' | 'match' | 'info';
+  startTime: string;
+  endTime: string;
+  participants: string[];
+  createdBy: string;
+  status: 'upcoming' | 'active' | 'finished';
+  schoolId?: string;
+}
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  type: 'info' | 'tournament' | 'match' | 'important';
+  createdAt: string;
+  createdBy: string;
+  expiresAt?: string;
 }

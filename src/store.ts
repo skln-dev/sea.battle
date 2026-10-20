@@ -252,3 +252,30 @@ export function deleteChatMessage(msgId: string) {
   const msgs = getChatMessages().filter(m => m.id !== msgId);
   set(KEYS.CHAT, msgs);
 }
+
+// Tournaments
+const KEYS_TOURNAMENTS = 'skln_tournaments';
+const KEYS_ANNOUNCEMENTS = 'skln_announcements';
+
+export function getTournaments(): import('./types').Tournament[] { return get<import('./types').Tournament[]>(KEYS_TOURNAMENTS, []); }
+export function saveTournament(t: import('./types').Tournament) {
+  const tournaments = getTournaments();
+  const idx = tournaments.findIndex(x => x.id === t.id);
+  if (idx >= 0) tournaments[idx] = t; else tournaments.push(t);
+  set(KEYS_TOURNAMENTS, tournaments);
+}
+export function deleteTournament(id: string) {
+  set(KEYS_TOURNAMENTS, getTournaments().filter(t => t.id !== id));
+}
+
+// Announcements
+export function getAnnouncements(): import('./types').Announcement[] { return get<import('./types').Announcement[]>(KEYS_ANNOUNCEMENTS, []); }
+export function saveAnnouncement(a: import('./types').Announcement) {
+  const announcements = getAnnouncements();
+  const idx = announcements.findIndex(x => x.id === a.id);
+  if (idx >= 0) announcements[idx] = a; else announcements.push(a);
+  set(KEYS_ANNOUNCEMENTS, announcements);
+}
+export function deleteAnnouncement(id: string) {
+  set(KEYS_ANNOUNCEMENTS, getAnnouncements().filter(a => a.id !== id));
+}
