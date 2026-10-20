@@ -62,6 +62,7 @@ export function initDefaults() {
       registeredAt: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
       loginHistory: [new Date().toISOString()],
+      warnings: [],
     };
     // Create guest user
     const guest: User = {
@@ -78,6 +79,7 @@ export function initDefaults() {
       registeredAt: new Date().toISOString(),
       lastLogin: new Date().toISOString(),
       loginHistory: [],
+      warnings: [],
     };
     set(KEYS.USERS, [admin, guest]);
   }
@@ -201,3 +203,52 @@ export function setOnlineCount(n: number) { set(KEYS.ONLINE_COUNT, n); }
 export function getYesterdayCount(): number { return get<number>(KEYS.YESTERDAY_COUNT, 0); }
 export function getTotalCount(): number { return get<number>(KEYS.TOTAL_COUNT, 0); }
 export function incrementTotalCount() { set(KEYS.TOTAL_COUNT, getTotalCount() + 1); }
+
+// Tickets (feedback to admin)
+const KEYS_TICKETS = 'skln_tickets';
+const KEYS_CLAN_CHAT = 'skln_clan_chat';
+const KEYS_CHAT_BANNED = 'skln_chat_banned';
+
+export function getTickets(): import('./types').AdminTicket[] { return get<import('./types').AdminTicket[]>(KEYS_TICKETS, []); }
+export function saveTicket(t: import('./types').AdminTicket) {
+  const tickets = getTickets();
+  const idx = tickets.findIndex(x => x.id === t.id);
+  if (idx >= 0) tickets[idx] = t; else tickets.push(t);
+  set(KEYS_TICKETS, tickets);
+}
+
+// Clan chat
+export function getClanChat(clanId: string): import('./types').ClanChatMessage[] {
+  const all = get<Record<string, import('./types').ClanChatMessage[]>>(KEYS_CLAN_CHAT, {});
+  return all[clanId] || [];
+}
+export function addClanChatMessage(msg: import('./types').ClanChatMessage) {
+  const all = get<Record<string, import('./types').ClanChatMessage[]>>(KEYS_CLAN_CHAT, {});
+  if (!all[msg.clanId]) all[msg.clanId] = [];
+  all[msg.clanId].push(msg);
+  if (all[msg.clanId].length > 200) all[msg.clanId] = all[msg.clanId].slice(-200);
+  set(KEYS_CLAN_CHAT, all);
+}
+export function clearClanChat(clanId: string) {
+  const all = get<Record<string, import('./types').ClanChatMessage[]>>(KEYS_CLAN_CHAT, {});
+  all[clanId] = [];
+  set(KEYS_CLAN_CHAT, all);
+}
+
+// Chat moderation
+export function getBannedChatUsers(): string[] { return get<string[]>(KEYS_CHAT_BANNED, []); }
+export function banChatUser(userId: string) {
+  const banned = getBannedChatUsers();
+  if (!banned.includes(userId)) {
+    banned.push(userId);
+    set(KEYS_CHAT_BANNED, banned);
+  }
+}
+export function unbanChatUser(userId: string) {
+  const banned = getBannedChatUsers().filter(id => id !== userId);
+  set(KEYS_CHAT_BANNED, banned);
+}
+export function deleteChatMessage(msgId: string) {
+  const msgs = getChatMessages().filter(m => m.id !== msgId);
+  set(KEYS.CHAT, msgs);
+}

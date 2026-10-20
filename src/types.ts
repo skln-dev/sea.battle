@@ -25,6 +25,46 @@ export interface User {
   registeredAt: string;
   lastLogin: string;
   loginHistory: string[];
+  banned?: boolean;
+  banReason?: string;
+  warnings: Warning[];
+  muted?: boolean;
+}
+
+export interface Warning {
+  id: string;
+  reason: string;
+  issuedBy: string;
+  issuedAt: string;
+}
+
+export interface AdminTicket {
+  id: string;
+  userId: string;
+  nickname: string;
+  subject: string;
+  message: string;
+  status: 'open' | 'closed';
+  replies: TicketReply[];
+  createdAt: string;
+}
+
+export interface TicketReply {
+  id: string;
+  authorId: string;
+  authorNickname: string;
+  isAdmin: boolean;
+  text: string;
+  createdAt: string;
+}
+
+export interface ClanChatMessage {
+  id: string;
+  clanId: string;
+  userId: string;
+  nickname: string;
+  text: string;
+  timestamp: string;
 }
 
 export interface Ship {
