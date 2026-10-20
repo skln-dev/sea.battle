@@ -63,6 +63,9 @@ export function initDefaults() {
       lastLogin: new Date().toISOString(),
       loginHistory: [new Date().toISOString()],
       warnings: [],
+      tags: [],
+      chatMessagesCount: 0,
+      questionsCount: 0,
     };
     // Create guest user
     const guest: User = {
@@ -80,6 +83,9 @@ export function initDefaults() {
       lastLogin: new Date().toISOString(),
       loginHistory: [],
       warnings: [],
+      tags: [],
+      chatMessagesCount: 0,
+      questionsCount: 0,
     };
     set(KEYS.USERS, [admin, guest]);
   }
@@ -278,4 +284,60 @@ export function saveAnnouncement(a: import('./types').Announcement) {
 }
 export function deleteAnnouncement(id: string) {
   set(KEYS_ANNOUNCEMENTS, getAnnouncements().filter(a => a.id !== id));
+}
+
+// Guest Tickets (support without registration)
+const KEYS_GUEST_TICKETS = 'skln_guest_tickets';
+const KEYS_ROOM_WARNINGS = 'skln_room_warnings';
+const KEYS_RATING_RULES = 'skln_rating_rules';
+
+export function getGuestTickets(): import('./types').GuestTicket[] { return get<import('./types').GuestTicket[]>(KEYS_GUEST_TICKETS, []); }
+export function saveGuestTicket(t: import('./types').GuestTicket) {
+  const tickets = getGuestTickets();
+  const idx = tickets.findIndex(x => x.id === t.id);
+  if (idx >= 0) tickets[idx] = t; else tickets.push(t);
+  set(KEYS_GUEST_TICKETS, tickets);
+}
+export function generateTicketNumber(): string {
+  const num = Math.floor(Math.random() * 900000) + 100000;
+  return `SKLN-${num}`;
+}
+
+// Room warnings
+export function getRoomWarnings(): import('./types').RoomWarning[] { return get<import('./types').RoomWarning[]>(KEYS_ROOM_WARNINGS, []); }
+export function saveRoomWarning(w: import('./types').RoomWarning) {
+  const warnings = getRoomWarnings();
+  warnings.push(w);
+  set(KEYS_ROOM_WARNINGS, warnings);
+}
+export function deleteRoomWarning(id: string) {
+  set(KEYS_ROOM_WARNINGS, getRoomWarnings().filter(w => w.id !== id));
+}
+
+// Rating rules
+export function getRatingRules(): import('./types').RatingRule[] {
+  const rules = get<import('./types').RatingRule[]>(KEYS_RATING_RULES, []);
+  if (rules.length === 0) {
+    // Default rules
+    const defaults: import('./types').RatingRule[] = [
+      { id: '1', name: 'Сообщение в чате', description: 'За каждое сообщение в общем чате', xpPerAction: 2, actionType: 'chat_message' },
+      { id: '2', name: 'Вопрос в FAQ', description: 'За каждый заданный вопрос', xpPerAction: 5, actionType: 'question' },
+      { id: '3', name: 'Победа в игре', description: 'За победу в морском бое', xpPerAction: 50, actionType: 'game_win' },
+      { id: '4', name: 'Участие в игре', description: 'За каждую сыгранную игру', xpPerAction: 10, actionType: 'game_play' },
+      { id: '5', name: 'Точный выстрел', description: 'За попадание по кораблю', xpPerAction: 3, actionType: 'accurate_shot' },
+      { id: '6', name: 'Ежедневный вход', description: 'За ежедневный вход в игру', xpPerAction: 15, actionType: 'daily_login' },
+    ];
+    set(KEYS_RATING_RULES, defaults);
+    return defaults;
+  }
+  return rules;
+}
+export function saveRatingRule(r: import('./types').RatingRule) {
+  const rules = getRatingRules();
+  const idx = rules.findIndex(x => x.id === r.id);
+  if (idx >= 0) rules[idx] = r; else rules.push(r);
+  set(KEYS_RATING_RULES, rules);
+}
+export function deleteRatingRule(id: string) {
+  set(KEYS_RATING_RULES, getRatingRules().filter(r => r.id !== id));
 }

@@ -27,8 +27,22 @@ export interface User {
   loginHistory: string[];
   banned?: boolean;
   banReason?: string;
+  banExpiresAt?: string;
   warnings: Warning[];
   muted?: boolean;
+  tags: UserTag[];
+  customRating?: number;
+  chatMessagesCount: number;
+  questionsCount: number;
+}
+
+export interface UserTag {
+  id: string;
+  name: string;
+  color: string;
+  expiresAt?: string;
+  assignedBy: string;
+  assignedAt: string;
 }
 
 export interface Warning {
@@ -218,4 +232,33 @@ export interface Announcement {
   createdAt: string;
   createdBy: string;
   expiresAt?: string;
+}
+
+export interface RoomWarning {
+  id: string;
+  roomId: string;
+  reason: string;
+  issuedBy: string;
+  issuedAt: string;
+  type: 'warning' | 'ban' | 'permanent_ban';
+  expiresAt?: string;
+}
+
+export interface GuestTicket {
+  id: string;
+  ticketNumber: string;
+  email: string;
+  subject: string;
+  message: string;
+  status: 'open' | 'closed';
+  replies: TicketReply[];
+  createdAt: string;
+}
+
+export interface RatingRule {
+  id: string;
+  name: string;
+  description: string;
+  xpPerAction: number;
+  actionType: 'chat_message' | 'question' | 'game_win' | 'game_play' | 'accurate_shot' | 'daily_login';
 }
