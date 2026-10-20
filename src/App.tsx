@@ -622,11 +622,11 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Комнаты для игры</h2>
         <div className="flex gap-2">
+          {currentUser && (
+            <button onClick={playWithAI} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm transition">Играть с ИИ</button>
+          )}
           {currentUser && currentUser.id !== 'guest' && (
-            <>
-              <button onClick={playWithAI} className="px-4 py-2 bg-purple-600 hover:bg-purple-500 rounded-lg text-sm transition">Играть с ИИ</button>
-              <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm transition"><Plus className="w-4 h-4 inline" /> Создать</button>
-            </>
+            <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm transition"><Plus className="w-4 h-4 inline" /> Создать</button>
           )}
         </div>
       </div>
@@ -659,7 +659,7 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
                 </div>
                 <div className="text-sm text-slate-400">Создал: {creator?.nickname || '???'} • {room.players.length}/{room.maxPlayers} игроков</div>
               </div>
-              <button onClick={() => joinRoom(room)} disabled={!currentUser || currentUser.id === 'guest'} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm transition">Войти</button>
+              <button onClick={() => joinRoom(room)} disabled={!currentUser} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm transition">Войти</button>
             </div>
           );
         })}

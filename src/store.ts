@@ -63,7 +63,23 @@ export function initDefaults() {
       lastLogin: new Date().toISOString(),
       loginHistory: [new Date().toISOString()],
     };
-    set(KEYS.USERS, [admin]);
+    // Create guest user
+    const guest: User = {
+      id: 'guest',
+      phone: 'guest',
+      nickname: 'Гость',
+      password: '',
+      role: 'guest',
+      level: 0,
+      xp: 0,
+      gamesPlayed: 0, gamesWon: 0, gamesLost: 0, gamesDraw: 0,
+      totalShots: 0, accurateShots: 0, totalTimePlayed: 0,
+      friends: [], backgroundColor: '#0f172a',
+      registeredAt: new Date().toISOString(),
+      lastLogin: new Date().toISOString(),
+      loginHistory: [],
+    };
+    set(KEYS.USERS, [admin, guest]);
   }
   if (!localStorage.getItem(KEYS.SCHOOLS)) {
     const schools: School[] = [
@@ -89,6 +105,10 @@ export function saveUser(user: User) {
 export function getCurrentUser(): User | null {
   const id = localStorage.getItem(KEYS.CURRENT_USER);
   if (!id) return null;
+  // Special handling for guest
+  if (id === 'guest') {
+    return getUserById('guest') || null;
+  }
   return getUserById(id) || null;
 }
 export function setCurrentUser(id: string | null) {
