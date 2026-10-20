@@ -1,4 +1,4 @@
-import { User, Game, Room, Clan, Federation, School, ChatMessage, Question, AdminSettings, PasswordResetRequest } from './types';
+import { User, Game, Room, Clan, Federation, School, ChatMessage, Question, AdminSettings, PasswordResetRequest, RolePermission } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 const KEYS = {
@@ -37,6 +37,9 @@ export function initDefaults() {
       xpPerWin: 50,
       xpPerShot: 1,
       xpPerAccuracy: 5,
+      showAnnouncements: true,
+      showTournamentHistory: true,
+      pinAdminMessages: false,
     };
     set(KEYS.SETTINGS, defaults);
   }
@@ -191,8 +194,41 @@ export function saveQuestion(q: Question) {
 }
 
 // Settings
-export function getSettings(): AdminSettings { return get<AdminSettings>(KEYS.SETTINGS, { turnTime: 30, levelThresholds: [0,100,300,600,1000,1500,2200,3000,4000,5500], xpPerWin: 50, xpPerShot: 1, xpPerAccuracy: 5 }); }
+export function getSettings(): AdminSettings { 
+  return get<AdminSettings>(KEYS.SETTINGS, { 
+    turnTime: 30, 
+    levelThresholds: [0,100,300,600,1000,1500,2200,3000,4000,5500], 
+    xpPerWin: 50, 
+    xpPerShot: 1, 
+    xpPerAccuracy: 5,
+    showAnnouncements: true,
+    showTournamentHistory: true,
+    pinAdminMessages: false
+  }); 
+}
 export function saveSettings(s: AdminSettings) { set(KEYS.SETTINGS, s); }
+
+// Role Permissions
+const KEYS_ROLE_PERMISSIONS = 'skln_role_permissions';
+export function getRolePermissions(): RolePermission[] {
+  const perms = get<RolePermission[]>(KEYS_ROLE_PERMISSIONS, []);
+  if (perms.length === 0) {
+    const defaults: RolePermission[] = [
+      { id: '1', role: 'guest', canChat: false, canCreateClan: false, canCreateRoom: false, canPlayWithAI: true, canSeeRating: true, canCreateFederation: false, canSendSupport: true },
+      { id: '2', role: 'player', canChat: true, canCreateClan: true, canCreateRoom: true, canPlayWithAI: true, canSeeRating: true, canCreateFederation: true, canSendSupport: true },
+      { id: '3', role: 'admin', canChat: true, canCreateClan: true, canCreateRoom: true, canPlayWithAI: true, canSeeRating: true, canCreateFederation: true, canSendSupport: true }
+    ];
+    set(KEYS_ROLE_PERMISSIONS, defaults);
+    return defaults;
+  }
+  return perms;
+}
+export function saveRolePermission(p: RolePermission) {
+  const perms = getRolePermissions();
+  const idx = perms.findIndex(x => x.id === p.id);
+  if (idx >= 0) perms[idx] = p; else perms.push(p);
+  set(KEYS_ROLE_PERMISSIONS, perms);
+}
 
 // Password reset
 export function getResetRequests(): PasswordResetRequest[] { return get<PasswordResetRequest[]>(KEYS.RESET_REQUESTS, []); }

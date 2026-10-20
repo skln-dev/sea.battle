@@ -209,6 +209,21 @@ export interface AdminSettings {
   xpPerWin: number;
   xpPerShot: number;
   xpPerAccuracy: number;
+  showAnnouncements: boolean;
+  showTournamentHistory: boolean;
+  pinAdminMessages: boolean;
+}
+
+export interface RolePermission {
+  id: string;
+  role: 'guest' | 'player' | 'admin';
+  canChat: boolean;
+  canCreateClan: boolean;
+  canCreateRoom: boolean;
+  canPlayWithAI: boolean;
+  canSeeRating: boolean;
+  canCreateFederation: boolean;
+  canSendSupport: boolean;
 }
 
 export interface Tournament {

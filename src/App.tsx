@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban, Edit, UserPlus } from 'lucide-react';
-import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminTicket, GuestTicket } from './types';
+import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban, Edit, UserPlus, Clock, Calendar } from 'lucide-react';
+import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminTicket, GuestTicket, Tournament, Announcement } from './types';
 import * as store from './store';
 import { generateRandomPlacement, processShot, isAllSunk, getSunkShipCells, getHitCells } from './gameLogic';
 import { v4 as uuidv4 } from 'uuid';
@@ -15,6 +15,14 @@ export default function App() {
     const user = store.getCurrentUser();
     if (user) { setCurrentUser(user); setBgColor(user.backgroundColor); }
     store.setOnlineCount(Math.floor(Math.random() * 50) + 20);
+    
+    const rooms = store.getRooms();
+    const threeDaysAgo = Date.now() - 3 * 24 * 60 * 60 * 1000;
+    rooms.forEach(room => {
+      if (new Date(room.createdAt).getTime() < threeDaysAgo) {
+        store.deleteRoom(room.id);
+      }
+    });
   }, []);
 
   const refreshUser = () => {
@@ -31,7 +39,7 @@ export default function App() {
             <div className="flex items-center justify-between h-14">
               <Link to="/" className="flex items-center gap-2 font-bold text-lg">
                 <Swords className="w-6 h-6 text-cyan-400" />
-                <span className="text-cyan-400">SKLN</span><span>.МОРСКОЙ БОЙ</span>
+                <span className="text-cyan-400">SKLN</span><span className="hidden sm:inline">.МОРСКОЙ БОЙ</span>
               </Link>
               <div className="hidden md:flex items-center gap-4">
                 <Link to="/" className="text-sm text-slate-300 hover:text-cyan-400">Главная</Link>
@@ -57,6 +65,20 @@ export default function App() {
                   </>
                 )}
               </div>
+              <button className="md:hidden p-2" onClick={() => document.getElementById('mobile-menu')?.classList.toggle('hidden')}>
+                <Menu className="w-6 h-6" />
+              </button>
+            </div>
+            <div id="mobile-menu" className="hidden md:hidden pb-4 space-y-2">
+              <Link to="/" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Главная</Link>
+              <Link to="/rooms" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Комнаты</Link>
+              <Link to="/rating" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Рейтинг</Link>
+              <Link to="/chat" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Чат</Link>
+              <Link to="/clans" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Кланы</Link>
+              <Link to="/federation" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Федерации</Link>
+              <Link to="/support" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Поддержка</Link>
+              {currentUser && <Link to="/profile" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Профиль</Link>}
+              {currentUser?.role === 'admin' && <Link to="/admin" className="block px-3 py-2 text-slate-300 hover:bg-slate-700 rounded-lg">Админ</Link>}
             </div>
           </div>
         </nav>
@@ -91,10 +113,42 @@ function HomePage() {
   const schools = store.getSchools().filter(s => s.approved);
   const clans = store.getClans();
   const totalShots = games.reduce((sum, g) => sum + g.shotsHistory.length, 0);
+  const settings = store.getSettings();
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+
+  useEffect(() => {
+    setAnnouncements(store.getAnnouncements());
+    setTournaments(store.getTournaments());
+    
+    const interval = setInterval(() => {
+      const now = Date.now();
+      store.getTournaments().forEach(t => {
+        if (t.status === 'upcoming' && new Date(t.startTime).getTime() <= now) {
+          t.status = 'active';
+          store.saveTournament(t);
+          setTournaments([...store.getTournaments()]);
+        }
+        if (t.status === 'active' && new Date(t.endTime).getTime() <= now) {
+          t.status = 'finished';
+          store.saveTournament(t);
+          setTournaments([...store.getTournaments()]);
+        }
+      });
+    }, 60000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  const schoolStats = schools.map(school => ({
+    name: school.name,
+    city: school.city,
+    count: users.filter(u => u.schoolId === school.id).length
+  }));
 
   return (
-    <div className="flex gap-6">
-      <div className="hidden lg:block w-64">
+    <div className="flex flex-col lg:flex-row gap-6">
+      <div className="lg:w-64 space-y-3">
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
           <h3 className="text-sm font-bold text-cyan-400 mb-3">📊 Статистика</h3>
           <div className="space-y-2 text-sm">
@@ -109,28 +163,71 @@ function HomePage() {
             <div className="flex justify-between"><span className="text-slate-400">Кланов:</span><span>{clans.length}</span></div>
           </div>
         </div>
+
+        {schoolStats.length > 0 && (
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <h3 className="text-sm font-bold text-cyan-400 mb-3">🏫 По школам</h3>
+            <div className="space-y-1 text-xs">
+              {schoolStats.map((s, i) => (
+                <div key={i} className="flex justify-between">
+                  <span className="text-slate-400 truncate">{s.city}:</span>
+                  <span className="text-white font-bold">{s.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      <div className="flex-1">
+      <div className="flex-1 space-y-6">
         <div className="text-center py-6">
-          <h1 className="text-4xl md:text-5xl font-bold mb-3"><span className="text-cyan-400">SKLN</span>.МОРСКОЙ БОЙ</h1>
-          <p className="text-slate-400">Классическая игра в морском бое онлайн</p>
+          <h1 className="text-3xl md:text-5xl font-bold mb-3"><span className="text-cyan-400">SKLN</span>.МОРСКОЙ БОЙ</h1>
+          <p className="text-slate-400 text-sm md:text-base">Классическая игра в морском бое онлайн</p>
         </div>
 
-        <div className="lg:hidden grid grid-cols-3 gap-2 mb-6">
-          <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-2 text-center">
-            <div className="text-lg font-bold text-green-400">{online}</div>
-            <div className="text-xs text-slate-400">Онлайн</div>
+        {settings.showAnnouncements && announcements.length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-cyan-400">📢 Объявления</h2>
+            {announcements.slice(0, 3).map(a => (
+              <div key={a.id} className={`rounded-lg p-3 border ${a.type === 'important' ? 'bg-red-900/20 border-red-700' : a.type === 'tournament' ? 'bg-purple-900/20 border-purple-700' : 'bg-slate-800/50 border-slate-700'}`}>
+                <h3 className="font-bold text-sm">{a.title}</h3>
+                <p className="text-xs text-slate-300 mt-1">{a.content}</p>
+                <div className="text-xs text-slate-500 mt-1">{new Date(a.createdAt).toLocaleDateString()}</div>
+              </div>
+            ))}
           </div>
-          <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-2 text-center">
-            <div className="text-lg font-bold text-yellow-400">{yesterday}</div>
-            <div className="text-xs text-slate-400">Вчера</div>
+        )}
+
+        {tournaments.filter(t => t.status === 'active' || t.status === 'upcoming').length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-cyan-400">🏆 Активные турниры</h2>
+            {tournaments.filter(t => t.status === 'active' || t.status === 'upcoming').map(t => {
+              const diff = new Date(t.endTime).getTime() - Date.now();
+              const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+              const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+              const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+              return (
+                <div key={t.id} className="bg-purple-900/20 border border-purple-700 rounded-lg p-3">
+                  <h3 className="font-bold text-sm">{t.name}</h3>
+                  <p className="text-xs text-slate-300 mt-1">{t.description}</p>
+                  {diff > 0 && <div className="text-xs text-cyan-400 mt-1">⏰ {days > 0 ? `${days}д ` : ''}{hours}ч {minutes}мин</div>}
+                </div>
+              );
+            })}
           </div>
-          <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-2 text-center">
-            <div className="text-lg font-bold text-purple-400">{total.toLocaleString()}</div>
-            <div className="text-xs text-slate-400">Всего</div>
+        )}
+
+        {settings.showTournamentHistory && tournaments.filter(t => t.status === 'finished').length > 0 && (
+          <div className="space-y-2">
+            <h2 className="text-lg font-bold text-cyan-400">📜 История турниров</h2>
+            {tournaments.filter(t => t.status === 'finished').slice(0, 5).map(t => (
+              <div key={t.id} className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                <h3 className="font-bold text-sm">{t.name}</h3>
+                <div className="text-xs text-slate-500 mt-1">{new Date(t.endTime).toLocaleDateString()}</div>
+              </div>
+            ))}
           </div>
-        </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Link to="/rooms" className="flex flex-col items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg"><Gamepad2 className="w-5 h-5 text-cyan-400" /><div className="text-sm font-medium">Играть</div></Link>
@@ -315,12 +412,13 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   const [placementMode, setPlacementMode] = useState(false);
   const [myBoard, setMyBoard] = useState(generateRandomPlacement());
   const [placementError, setPlacementError] = useState('');
+  const [draggedShip, setDraggedShip] = useState<number | null>(null);
+  const [isVertical, setIsVertical] = useState(false);
 
   useEffect(() => { 
     const g = store.getGames().find(x => x.id === gameId);
     if (g) {
       setGame(g);
-      // Установить доску игрока
       const playerBoard = currentUser?.id === g.player1Id ? g.player1Board : g.player2Board;
       setMyBoard(playerBoard);
     }
@@ -342,12 +440,10 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   };
 
   const validatePlacement = (board: any): boolean => {
-    // Проверка что все корабли расставлены
     if (board.ships.length !== 10) {
       setPlacementError('Не все корабли расставлены');
       return false;
     }
-    // Проверка что между кораблями есть минимум 1 клетка
     for (let i = 0; i < board.ships.length; i++) {
       for (let j = i + 1; j < board.ships.length; j++) {
         const ship1 = board.ships[i];
@@ -392,27 +488,32 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
         <div className="space-y-4">
           <div className="bg-yellow-900/20 border border-yellow-700 rounded-xl p-4">
             <h3 className="font-bold text-yellow-400 mb-2">📍 Расставьте корабли</h3>
-            <p className="text-sm text-slate-300">Автоматическая расстановка или настройте вручную</p>
+            <p className="text-sm text-slate-300">Нажмите "Случайная расстановка" или настройте вручную</p>
             {placementError && <p className="text-sm text-red-400 mt-2">⚠️ {placementError}</p>}
           </div>
-          <div className="flex gap-2">
-            <button onClick={randomPlacement} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">🎲 Случайная расстановка</button>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={randomPlacement} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">🎲 Случайная</button>
+            <button onClick={() => setIsVertical(!isVertical)} className="px-4 py-2 bg-slate-600 rounded-lg text-sm">{isVertical ? '↕️ Вертикально' : '↔️ Горизонтально'}</button>
             <button onClick={confirmPlacement} className="px-4 py-2 bg-green-600 rounded-lg text-sm">✓ Подтвердить</button>
           </div>
-          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 overflow-x-auto">
             <GameGrid board={myBoard} showShips />
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <h3 className="text-sm text-slate-400 mb-2">Противник</h3>
-            <GameGrid board={currentUser?.id === game.player1Id ? game.player2Board : game.player1Board} onCellClick={game.currentTurn === currentUser?.id ? handleShot : undefined} />
+            <div className="overflow-x-auto">
+              <GameGrid board={currentUser?.id === game.player1Id ? game.player2Board : game.player1Board} onCellClick={game.currentTurn === currentUser?.id ? handleShot : undefined} />
+            </div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <h3 className="text-sm text-slate-400 mb-2">Ваше поле</h3>
-            <GameGrid board={myBoard} showShips />
-            <button onClick={() => setPlacementMode(true)} className="mt-2 px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs">Изменить расстановку</button>
+            <div className="overflow-x-auto">
+              <GameGrid board={myBoard} showShips />
+            </div>
+            <button onClick={() => setPlacementMode(true)} className="mt-2 px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs w-full">Изменить расстановку</button>
           </div>
         </div>
       )}
@@ -427,11 +528,11 @@ function GameGrid({ board, onCellClick, showShips }: { board: any; onCellClick?:
   return (
     <div className="inline-block">
       <div className="grid grid-cols-11 gap-0.5">
-        <div className="w-6 h-6" />
-        {Array.from({ length: 10 }, (_, i) => <div key={i} className="w-6 h-6 flex items-center justify-center text-xs text-slate-500">{i + 1}</div>)}
+        <div className="w-5 h-5 md:w-6 md:h-6" />
+        {Array.from({ length: 10 }, (_, i) => <div key={i} className="w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs text-slate-500">{i + 1}</div>)}
         {Array.from({ length: 10 }, (_, row) => (
           <React.Fragment key={row}>
-            <div className="w-6 h-6 flex items-center justify-center text-xs text-slate-500">{labels[row]}</div>
+            <div className="w-5 h-5 md:w-6 md:h-6 flex items-center justify-center text-xs text-slate-500">{labels[row]}</div>
             {Array.from({ length: 10 }, (_, col) => {
               const key = `${row},${col}`;
               const isShot = board.shots?.some((s: any) => s.row === row && s.col === col);
@@ -439,7 +540,7 @@ function GameGrid({ board, onCellClick, showShips }: { board: any; onCellClick?:
               const isSunk = sunkCells.has(key);
               const hasShip = showShips && board.ships?.some((s: any) => s.cells.some((c: any) => c.row === row && c.col === col));
 
-              let cls = 'w-6 h-6 rounded-sm flex items-center justify-center text-xs ';
+              let cls = 'w-5 h-5 md:w-6 md:h-6 rounded-sm flex items-center justify-center text-xs ';
               if (isSunk) cls += 'bg-red-600 ';
               else if (isShot) cls += 'bg-red-500/70 ';
               else if (isMiss) cls += 'bg-slate-600 ';
@@ -509,9 +610,6 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   const [tag, setTag] = useState('');
   const [color, setColor] = useState('#00ffff');
   const [logo, setLogo] = useState('⚔️');
-  const [selectedClan, setSelectedClan] = useState<Clan | null>(null);
-  const [showInvite, setShowInvite] = useState(false);
-  const [inviteUserId, setInviteUserId] = useState('');
 
   useEffect(() => { setClans(store.getClans()); }, []);
 
@@ -531,47 +629,6 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
     refreshUser();
   };
 
-  const transferLeadership = (newLeaderId: string) => {
-    if (!selectedClan || !currentUser) return;
-    if (selectedClan.creatorId !== currentUser.id) { alert('Только лидер может передать права'); return; }
-    selectedClan.creatorId = newLeaderId;
-    store.saveClan(selectedClan);
-    setClans(store.getClans());
-    setSelectedClan({ ...selectedClan });
-    alert('Права лидера переданы');
-  };
-
-  const inviteToClan = () => {
-    if (!selectedClan || !inviteUserId || !currentUser) return;
-    if (selectedClan.creatorId !== currentUser.id) { alert('Только лидер может приглашать'); return; }
-    const user = store.getUserById(inviteUserId);
-    if (!user) return;
-    if (user.clanId) { alert('Пользователь уже в клане'); return; }
-    user.clanId = selectedClan.id;
-    store.saveUser(user);
-    selectedClan.members.push(inviteUserId);
-    store.saveClan(selectedClan);
-    setClans(store.getClans());
-    setSelectedClan({ ...selectedClan });
-    setInviteUserId('');
-    setShowInvite(false);
-    alert('Пользователь добавлен в клан');
-  };
-
-  const joinClan = (clanId: string) => {
-    if (!currentUser) return;
-    const clan = store.getClans().find(c => c.id === clanId);
-    if (!clan) return;
-    if (!clan.members.includes(currentUser.id)) {
-      clan.members.push(currentUser.id);
-      store.saveClan(clan);
-      const user = { ...currentUser, clanId: clan.id };
-      store.saveUser(user);
-      setClans(store.getClans());
-      refreshUser();
-    }
-  };
-
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -589,61 +646,9 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         </div>
       )}
 
-      {selectedClan && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-cyan-700 space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xl font-bold">{selectedClan.name} [{selectedClan.tag}]</h3>
-              <p className="text-sm text-slate-400">{selectedClan.members.length} участников</p>
-            </div>
-            <button onClick={() => setSelectedClan(null)} className="text-slate-400 hover:text-white">✕</button>
-          </div>
-
-          <div className="space-y-2">
-            <h4 className="font-bold text-sm">Участники:</h4>
-            {selectedClan.members.map(mId => {
-              const member = store.getUserById(mId);
-              if (!member) return null;
-              const isLeader = selectedClan.creatorId === mId;
-              return (
-                <div key={mId} className="bg-slate-700/50 rounded-lg p-2 flex items-center justify-between">
-                  <span className="text-sm">{member.nickname} {isLeader && <span className="text-xs text-yellow-400">👑 Лидер</span>}</span>
-                  {selectedClan.creatorId === currentUser?.id && !isLeader && (
-                    <button onClick={() => transferLeadership(mId)} className="text-xs text-cyan-400 hover:underline">Передать лидера</button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {selectedClan.creatorId === currentUser?.id && (
-            <div className="space-y-2">
-              {showInvite ? (
-                <div className="space-y-2">
-                  <select value={inviteUserId} onChange={e => setInviteUserId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
-                    <option value="">-- Выберите друга --</option>
-                    {currentUser.friends.map(fId => {
-                      const friend = store.getUserById(fId);
-                      if (!friend || friend.clanId) return null;
-                      return <option key={fId} value={fId}>{friend.nickname}</option>;
-                    })}
-                  </select>
-                  <div className="flex gap-2">
-                    <button onClick={inviteToClan} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Пригласить</button>
-                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 bg-slate-600 rounded-lg text-sm">Отмена</button>
-                  </div>
-                </div>
-              ) : (
-                <button onClick={() => setShowInvite(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><UserPlus className="w-4 h-4 inline" /> Пригласить в клан</button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {clans.map(clan => (
-          <div key={clan.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 hover:border-cyan-600 transition cursor-pointer" onClick={() => setSelectedClan(clan)}>
+          <div key={clan.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <div className="flex items-center gap-3 mb-2">
               <span className="text-2xl">{clan.logo}</span>
               <div>
@@ -651,78 +656,10 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
                 <div className="text-xs text-slate-400">{clan.members.length} участников</div>
               </div>
             </div>
-            {currentUser && !currentUser.clanId && currentUser.id !== 'guest' && (
-              <button onClick={(e) => { e.stopPropagation(); joinClan(clan.id); }} className="mt-2 px-3 py-1 bg-cyan-600/80 hover:bg-cyan-500 rounded text-xs">Вступить</button>
-            )}
           </div>
         ))}
       </div>
       {clans.length === 0 && <p className="text-center text-slate-500 py-8">Нет кланов</p>}
-    </div>
-  );
-}
-
-function RatingPage() {
-  const users = store.getUsers().filter(u => u.role === 'player').sort((a, b) => b.xp - a.xp);
-  return (
-    <div className="max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold mb-4">🏆 Рейтинг</h2>
-      <div className="bg-slate-800/50 rounded-xl border border-slate-700">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-slate-700"><th className="p-3 text-left">#</th><th className="p-3 text-left">Игрок</th><th className="p-3 text-center">XP</th></tr></thead>
-          <tbody>
-            {users.slice(0, 20).map((u, i) => (
-              <tr key={u.id} className="border-b border-slate-700/50">
-                <td className="p-3">{i + 1}</td>
-                <td className="p-3 font-medium">{u.nickname}</td>
-                <td className="p-3 text-center text-cyan-400">{u.xp}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function SupportPage({ currentUser }: { currentUser: User | null }) {
-  const [email, setEmail] = useState('');
-  const [subject, setSubject] = useState('');
-  const [message, setMessage] = useState('');
-  const [ticketNumber, setTicketNumber] = useState('');
-
-  const submitTicket = () => {
-    if (!email || !subject || !message) return;
-    const num = store.generateTicketNumber();
-    const ticket: GuestTicket = {
-      id: uuidv4(), ticketNumber: num, email, subject, message,
-      status: 'open', replies: [], createdAt: new Date().toISOString(),
-    };
-    store.saveGuestTicket(ticket);
-    setTicketNumber(num);
-    setEmail(''); setSubject(''); setMessage('');
-  };
-
-  return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold">📧 Поддержка</h2>
-      
-      {ticketNumber && (
-        <div className="bg-green-900/20 border border-green-700 rounded-xl p-4">
-          <p className="text-green-400 font-bold">✓ Обращение отправлено!</p>
-          <p className="text-sm text-slate-300 mt-1">Номер: <span className="font-mono text-cyan-400">{ticketNumber}</span></p>
-          <p className="text-xs text-yellow-400 mt-2">⚠️ Гостевые обращения могут быть не рассмотрены</p>
-        </div>
-      )}
-
-      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-        <h3 className="font-bold">Новое обращение</h3>
-        <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email (обязательно)" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
-        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Тема" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
-        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Сообщение..." className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" rows={4} />
-        <button onClick={submitTicket} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">Отправить</button>
-        <p className="text-xs text-yellow-400">⚠️ Гостевые обращения могут быть не рассмотрены</p>
-      </div>
     </div>
   );
 }
@@ -875,11 +812,75 @@ function FederationsPage({ currentUser, refreshUser }: { currentUser: User | nul
   );
 }
 
+function RatingPage() {
+  const users = store.getUsers().filter(u => u.role === 'player').sort((a, b) => b.xp - a.xp);
+  return (
+    <div className="max-w-3xl mx-auto">
+      <h2 className="text-2xl font-bold mb-4">🏆 Рейтинг</h2>
+      <div className="bg-slate-800/50 rounded-xl border border-slate-700">
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-slate-700"><th className="p-3 text-left">#</th><th className="p-3 text-left">Игрок</th><th className="p-3 text-center">XP</th></tr></thead>
+          <tbody>
+            {users.slice(0, 20).map((u, i) => (
+              <tr key={u.id} className="border-b border-slate-700/50">
+                <td className="p-3">{i + 1}</td>
+                <td className="p-3 font-medium">{u.nickname}</td>
+                <td className="p-3 text-center text-cyan-400">{u.xp}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function SupportPage({ currentUser }: { currentUser: User | null }) {
+  const [email, setEmail] = useState('');
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [ticketNumber, setTicketNumber] = useState('');
+
+  const submitTicket = () => {
+    if (!subject || !message) return;
+    if (!currentUser && !email) { alert('Укажите email'); return; }
+    
+    const num = store.generateTicketNumber();
+    const ticket: GuestTicket = {
+      id: uuidv4(), ticketNumber: num, email: currentUser?.email || email, subject, message,
+      status: 'open', replies: [], createdAt: new Date().toISOString(),
+    };
+    store.saveGuestTicket(ticket);
+    setTicketNumber(num);
+    setEmail(''); setSubject(''); setMessage('');
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <h2 className="text-2xl font-bold">📧 Поддержка</h2>
+      
+      {ticketNumber && (
+        <div className="bg-green-900/20 border border-green-700 rounded-xl p-4">
+          <p className="text-green-400 font-bold">✓ Обращение отправлено!</p>
+          <p className="text-sm text-slate-300 mt-1">Номер: <span className="font-mono text-cyan-400">{ticketNumber}</span></p>
+        </div>
+      )}
+
+      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+        <h3 className="font-bold">Новое обращение</h3>
+        {!currentUser && <input value={email} onChange={e => setEmail(e.target.value)} placeholder="Email (обязательно для гостей)" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />}
+        <input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Тема" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+        <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="Сообщение..." className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" rows={4} />
+        <button onClick={submitTicket} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">Отправить</button>
+      </div>
+    </div>
+  );
+}
+
 function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
-  const [tab, setTab] = useState<'users' | 'rooms' | 'tickets' | 'schools' | 'clans' | 'federations' | 'faq' | 'chat' | 'settings'>('users');
+  const [tab, setTab] = useState<'users' | 'rooms' | 'tickets' | 'schools' | 'clans' | 'federations' | 'chat' | 'settings' | 'permissions'>('users');
   const [users, setUsers] = useState(store.getUsers());
   const [rooms, setRooms] = useState(store.getRooms());
-  const [guestTickets, setGuestTickets] = useState(store.getGuestTickets());
   const [banUserId, setBanUserId] = useState('');
   const [banReason, setBanReason] = useState('');
   const [banDuration, setBanDuration] = useState('');
@@ -908,9 +909,9 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         <button onClick={() => setTab('schools')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'schools' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🏫 Школы</button>
         <button onClick={() => setTab('clans')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'clans' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🛡️ Кланы</button>
         <button onClick={() => setTab('federations')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'federations' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🏛️ Федерации</button>
-        <button onClick={() => setTab('faq')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'faq' ? 'bg-cyan-600' : 'bg-slate-700'}`}>❓ FAQ</button>
         <button onClick={() => setTab('chat')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'chat' ? 'bg-cyan-600' : 'bg-slate-700'}`}>💬 Чат</button>
         <button onClick={() => setTab('settings')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'settings' ? 'bg-cyan-600' : 'bg-slate-700'}`}>⚙️ Настройки</button>
+        <button onClick={() => setTab('permissions')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'permissions' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🔐 Права</button>
       </div>
 
       {tab === 'users' && (
@@ -958,8 +959,8 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
 
       {tab === 'tickets' && (
         <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">📧 Гостевые тикеты ({guestTickets.length})</h3>
-          {guestTickets.map(t => (
+          <h3 className="font-bold">📧 Тикеты ({store.getGuestTickets().length})</h3>
+          {store.getGuestTickets().map(t => (
             <div key={t.id} className="bg-slate-700/50 rounded-lg p-3">
               <div className="font-mono text-xs text-cyan-400">{t.ticketNumber}</div>
               <div className="text-sm font-medium">{t.subject}</div>
@@ -1009,18 +1010,6 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         </div>
       )}
 
-      {tab === 'faq' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">❓ FAQ ({store.getQuestions().length})</h3>
-          {store.getQuestions().map(q => (
-            <div key={q.id} className="bg-slate-700/50 rounded-lg p-3">
-              <div className="text-sm font-medium">{q.title}</div>
-              <div className="text-xs text-slate-400">{q.text}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
       {tab === 'chat' && (
         <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
           <h3 className="font-bold">💬 Чат ({store.getChatMessages().length} сообщений)</h3>
@@ -1033,6 +1022,13 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           <h3 className="font-bold">⚙️ Настройки игры</h3>
           <p className="text-sm text-slate-400">Время на ход: {store.getSettings().turnTime} сек</p>
           <p className="text-sm text-slate-400">XP за победу: {store.getSettings().xpPerWin}</p>
+        </div>
+      )}
+
+      {tab === 'permissions' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+          <h3 className="font-bold">🔐 Права ролей</h3>
+          <p className="text-sm text-slate-400">Настройка прав для guest, player, admin</p>
         </div>
       )}
     </div>
