@@ -79,6 +79,7 @@ export interface ClanChatMessage {
   nickname: string;
   text: string;
   timestamp: string;
+  expiresAt?: string;
 }
 
 export interface Ship {
@@ -172,6 +173,7 @@ export interface ChatMessage {
   nickname: string;
   text: string;
   timestamp: string;
+  expiresAt?: string;
 }
 
 export interface Question {

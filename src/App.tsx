@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
 import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban, Edit, UserPlus, Clock, Calendar, Download, Upload } from 'lucide-react';
-import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminTicket, GuestTicket, Tournament, Announcement, RolePermission } from './types';
+import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, ClanChatMessage, Question, AdminTicket, GuestTicket, Tournament, Announcement, RolePermission } from './types';
 import * as store from './store';
 import { generateRandomPlacement, processShot, isAllSunk, getSunkShipCells, getHitCells } from './gameLogic';
 import { v4 as uuidv4 } from 'uuid';
@@ -238,7 +238,24 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   const handleLogin = () => {
     const user = store.getUserByPhone(phone);
     if (!user) { setError('Пользователь не найден'); return; }
-    if (user.banned) { setError(`Заблокирован${user.banExpiresAt ? ` до ${new Date(user.banExpiresAt).toLocaleString()}` : ' навсегда'}`); return; }
+    
+    // Проверка бана с автоматической разблокировкой
+    if (user.banned) {
+      // Если бан временный и срок истёк - разблокировать
+      if (user.banExpiresAt && new Date(user.banExpiresAt) < new Date()) {
+        user.banned = false;
+        user.banExpiresAt = undefined;
+        user.banReason = undefined;
+        store.saveUser(user);
+      } else {
+        // Бан активен - показать причину
+        const reason = user.banReason || 'Не указана';
+        const expires = user.banExpiresAt ? ` до ${new Date(user.banExpiresAt).toLocaleString()}` : ' навсегда';
+        setError(`⛔ Аккаунт заблокирован${expires}\n\nПричина: ${reason}`);
+        return;
+      }
+    }
+    
     if (user.password !== password) { setError('Неверный пароль'); return; }
     store.setCurrentUser(user.id);
     onLogin();
@@ -434,28 +451,49 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
     }, 1000);
     
     return () => clearInterval(interval);
-  }, [game?.currentTurn, game?.status]);
+  }, [game?.currentTurn, game?.status, game?.id]);
+
+  // Запуск хода ИИ
+  useEffect(() => {
+    if (!game || game.status !== 'playing') return;
+    if (game.player2Id === 'ai' && game.currentTurn === 'ai') {
+      const timeout = setTimeout(() => {
+        aiTurn();
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [game?.currentTurn, game?.status, game?.id]);
 
   if (!game) return <div>Загрузка...</div>;
 
   const handleMissTurn = () => {
-    if (!game) return;
-    if (game.currentTurn === game.player1Id) {
-      game.player1MissedTurns++;
-      if (game.player1MissedTurns >= 2) {
-        game.status = 'finished';
-        game.winner = game.player2Id;
+    setGame(prevGame => {
+      if (!prevGame) return prevGame;
+      const updatedGame = { ...prevGame };
+      
+      if (updatedGame.currentTurn === updatedGame.player1Id) {
+        updatedGame.player1MissedTurns++;
+        if (updatedGame.player1MissedTurns >= 2) {
+          updatedGame.status = 'finished';
+          updatedGame.winner = updatedGame.player2Id;
+          updatedGame.endTime = new Date().toISOString();
+        }
+      } else {
+        updatedGame.player2MissedTurns++;
+        if (updatedGame.player2MissedTurns >= 2) {
+          updatedGame.status = 'finished';
+          updatedGame.winner = updatedGame.player1Id;
+          updatedGame.endTime = new Date().toISOString();
+        }
       }
-    } else {
-      game.player2MissedTurns++;
-      if (game.player2MissedTurns >= 2) {
-        game.status = 'finished';
-        game.winner = game.player1Id;
+      
+      if (updatedGame.status === 'playing') {
+        updatedGame.currentTurn = updatedGame.currentTurn === updatedGame.player1Id ? updatedGame.player2Id : updatedGame.player1Id;
       }
-    }
-    game.currentTurn = game.currentTurn === game.player1Id ? game.player2Id : game.player1Id;
-    store.saveGame(game);
-    setGame({ ...game });
+      
+      store.saveGame(updatedGame);
+      return updatedGame;
+    });
   };
 
   const handleShot = (row: number, col: number) => {
@@ -1169,9 +1207,30 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
             <h3 className="font-bold">👥 Все пользователи ({users.length})</h3>
             {users.map(u => (
-              <div key={u.id} className="bg-slate-700/50 rounded-lg p-3">
-                <div className="text-sm font-medium">{u.nickname} <span className="text-xs text-slate-500">({u.role})</span></div>
-                {u.banned && <span className="text-xs bg-red-600/30 text-red-400 px-2 py-0.5 rounded">ЗАБАНЕН</span>}
+              <div key={u.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">{u.nickname} <span className="text-xs text-slate-500">({u.role})</span></div>
+                  {u.banned && (
+                    <div className="text-xs text-red-400 mt-1">
+                      ⛔ ЗАБАНЕН {u.banExpiresAt ? `до ${new Date(u.banExpiresAt).toLocaleString()}` : 'навсегда'}
+                      {u.banReason && <div className="text-slate-400">Причина: {u.banReason}</div>}
+                    </div>
+                  )}
+                </div>
+                {u.banned && (
+                  <button 
+                    onClick={() => {
+                      u.banned = false;
+                      u.banExpiresAt = undefined;
+                      u.banReason = undefined;
+                      store.saveUser(u);
+                      setUsers(store.getUsers());
+                    }}
+                    className="px-3 py-1 bg-green-600 hover:bg-green-500 rounded text-xs"
+                  >
+                    ✓ Разблокировать
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -1330,12 +1389,38 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
             <h3 className="font-bold">🏫 Все школы ({store.getSchools().filter(s => s.approved).length})</h3>
             {store.getSchools().filter(s => s.approved).map(s => (
-              <div key={s.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium">{s.name}</div>
-                  <div className="text-xs text-slate-400">{s.city} • {s.students.length} учеников</div>
+              <div key={s.id} className="bg-slate-700/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-sm font-medium">{s.name}</div>
+                    <div className="text-xs text-slate-400">{s.city} • {s.students.length} учеников</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        const newName = prompt('Новое название школы:', s.name);
+                        if (newName && newName !== s.name) {
+                          s.name = newName;
+                          const newCity = prompt('Новый город:', s.city);
+                          if (newCity) s.city = newCity;
+                          store.saveSchool(s);
+                          refreshUser();
+                        }
+                      }}
+                      className="p-1.5 bg-blue-600 rounded"
+                      title="Редактировать"
+                    >
+                      <Edit className="w-3 h-3" />
+                    </button>
+                    <button 
+                      onClick={() => { if (confirm('Удалить школу?')) { const schools = store.getSchools().filter(x => x.id !== s.id); localStorage.setItem('skln_schools', JSON.stringify(schools)); refreshUser(); } }} 
+                      className="p-1.5 bg-red-600 rounded"
+                      title="Удалить"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
-                <button onClick={() => { if (confirm('Удалить школу?')) { const schools = store.getSchools().filter(x => x.id !== s.id); localStorage.setItem('skln_schools', JSON.stringify(schools)); refreshUser(); } }} className="p-1.5 bg-red-600 rounded"><Trash2 className="w-3 h-3" /></button>
               </div>
             ))}
           </div>
@@ -1401,6 +1486,10 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
                       const newName = prompt('Новое название клана:', c.name);
                       if (newName && newName !== c.name) {
                         c.name = newName;
+                        const newTag = prompt('Новый тег (5 символов):', c.tag);
+                        if (newTag && newTag.length === 5) {
+                          c.tag = newTag;
+                        }
                         store.saveClan(c);
                         refreshUser();
                       }
@@ -1409,6 +1498,54 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
                     title="Редактировать"
                   >
                     <Edit className="w-3 h-3" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const userId = prompt('ID пользователя для добавления:');
+                      if (userId) {
+                        const user = store.getUserById(userId);
+                        if (user) {
+                          if (!c.members.includes(userId)) {
+                            c.members.push(userId);
+                            user.clanId = c.id;
+                            store.saveClan(c);
+                            store.saveUser(user);
+                            refreshUser();
+                            alert('Пользователь добавлен в клан');
+                          } else {
+                            alert('Пользователь уже в клане');
+                          }
+                        } else {
+                          alert('Пользователь не найден');
+                        }
+                      }
+                    }}
+                    className="p-1.5 bg-green-600 rounded"
+                    title="Добавить участника"
+                  >
+                    <UserPlus className="w-3 h-3" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const userId = prompt('ID пользователя для удаления из клана:');
+                      if (userId && c.members.includes(userId)) {
+                        c.members = c.members.filter(m => m !== userId);
+                        const user = store.getUserById(userId);
+                        if (user) {
+                          user.clanId = undefined;
+                          store.saveUser(user);
+                        }
+                        store.saveClan(c);
+                        refreshUser();
+                        alert('Пользователь удалён из клана');
+                      } else {
+                        alert('Пользователь не найден в клане');
+                      }
+                    }}
+                    className="p-1.5 bg-yellow-600 rounded"
+                    title="Удалить участника"
+                  >
+                    <Ban className="w-3 h-3" />
                   </button>
                   <button 
                     onClick={() => {
@@ -1465,29 +1602,393 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
       )}
 
       {tab === 'federations' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">🏛️ Федерации ({store.getFederations().length})</h3>
-          {store.getFederations().map(f => (
-            <div key={f.id} className="bg-slate-700/50 rounded-lg p-3">
-              <div className="text-sm font-medium">{f.name}</div>
-              <div className="text-xs text-slate-400">{f.clans.length} кланов</div>
-            </div>
-          ))}
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">➕ Создать федерацию</h3>
+            <input 
+              id="newFedName"
+              placeholder="Название федерации" 
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" 
+            />
+            <button 
+              onClick={() => {
+                const name = (document.getElementById('newFedName') as HTMLInputElement).value;
+                if (!name) {
+                  alert('Введите название федерации');
+                  return;
+                }
+                const fed: Federation = {
+                  id: uuidv4(),
+                  name,
+                  creatorId: currentUser.id,
+                  clans: [],
+                  members: [],
+                  wins: 0,
+                  losses: 0,
+                  createdAt: new Date().toISOString()
+                };
+                store.saveFederation(fed);
+                refreshUser();
+              }}
+              className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm"
+            >
+              Создать федерацию
+            </button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">🏛️ Все федерации ({store.getFederations().length})</h3>
+            {store.getFederations().map(f => (
+              <div key={f.id} className="bg-slate-700/50 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-sm font-medium">{f.name}</div>
+                    <div className="text-xs text-slate-400">{f.clans.length} кланов • {f.members.length} участников</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => {
+                        const newName = prompt('Новое название федерации:', f.name);
+                        if (newName && newName !== f.name) {
+                          f.name = newName;
+                          store.saveFederation(f);
+                          refreshUser();
+                        }
+                      }}
+                      className="p-1.5 bg-blue-600 rounded"
+                      title="Редактировать"
+                    >
+                      <Edit className="w-3 h-3" />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        const clanId = prompt('ID клана для добавления:');
+                        if (clanId) {
+                          const clan = store.getClans().find(c => c.id === clanId);
+                          if (clan) {
+                            if (!f.clans.includes(clanId)) {
+                              f.clans.push(clanId);
+                              store.saveFederation(f);
+                              refreshUser();
+                              alert('Клан добавлен в федерацию');
+                            } else {
+                              alert('Клан уже в федерации');
+                            }
+                          } else {
+                            alert('Клан не найден');
+                          }
+                        }
+                      }}
+                      className="p-1.5 bg-green-600 rounded"
+                      title="Добавить клан"
+                    >
+                      <Plus className="w-3 h-3" />
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (confirm('Удалить федерацию?')) {
+                          const feds = store.getFederations().filter(x => x.id !== f.id);
+                          localStorage.setItem('skln_federations', JSON.stringify(feds));
+                          refreshUser();
+                        }
+                      }}
+                      className="p-1.5 bg-red-600 rounded"
+                      title="Удалить"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                </div>
+                {f.clans.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    <div className="text-xs text-slate-500">Кланы в федерации:</div>
+                    {f.clans.map(clanId => {
+                      const clan = store.getClans().find(c => c.id === clanId);
+                      if (!clan) return null;
+                      return (
+                        <div key={clanId} className="flex items-center justify-between bg-slate-600/50 rounded p-2">
+                          <span className="text-xs">{clan.name} [{clan.tag}]</span>
+                          <button 
+                            onClick={() => {
+                              f.clans = f.clans.filter(c => c !== clanId);
+                              store.saveFederation(f);
+                              refreshUser();
+                            }}
+                            className="text-xs text-red-400 hover:underline"
+                          >
+                            Удалить
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {tab === 'chat' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">💬 Чат ({store.getChatMessages().length} сообщений)</h3>
-          <button onClick={() => { localStorage.setItem('skln_chat', JSON.stringify([])); alert('Чат очищен'); }} className="px-4 py-2 bg-red-600 rounded-lg text-sm">Очистить весь чат</button>
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">📢 Отправить админское сообщение</h3>
+            <select 
+              id="adminMsgTarget"
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+            >
+              <option value="all">Все чаты</option>
+              <option value="main">Только общий чат</option>
+              {store.getClans().map(c => (
+                <option key={c.id} value={`clan_${c.id}`}>Клан: {c.name}</option>
+              ))}
+            </select>
+            <textarea 
+              id="adminMsgText"
+              placeholder="Текст сообщения..." 
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+              rows={3}
+            />
+            <input 
+              id="adminMsgDuration"
+              type="number"
+              placeholder="Время отображения (минут, 0 = навсегда)" 
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+            />
+            <button 
+              onClick={() => {
+                const target = (document.getElementById('adminMsgTarget') as HTMLSelectElement).value;
+                const text = (document.getElementById('adminMsgText') as HTMLTextAreaElement).value;
+                const duration = parseInt((document.getElementById('adminMsgDuration') as HTMLInputElement).value) || 0;
+                
+                if (!text) {
+                  alert('Введите текст сообщения');
+                  return;
+                }
+
+                const expiresAt = duration > 0 ? new Date(Date.now() + duration * 60000).toISOString() : undefined;
+
+                if (target === 'all' || target === 'main') {
+                  const msg: ChatMessage = {
+                    id: uuidv4(),
+                    userId: 'admin',
+                    nickname: '🔔 АДМИН',
+                    text,
+                    timestamp: new Date().toISOString(),
+                    expiresAt
+                  };
+                  store.addChatMessage(msg);
+                }
+
+                if (target === 'all' || target.startsWith('clan_')) {
+                  const clanIds = target === 'all' ? store.getClans().map(c => c.id) : [target.replace('clan_', '')];
+                  clanIds.forEach(clanId => {
+                    const msg: ClanChatMessage = {
+                      id: uuidv4(),
+                      clanId,
+                      userId: 'admin',
+                      nickname: '🔔 АДМИН',
+                      text,
+                      timestamp: new Date().toISOString(),
+                      expiresAt
+                    };
+                    store.addClanChatMessage(msg);
+                  });
+                }
+
+                alert('Сообщение отправлено');
+                (document.getElementById('adminMsgText') as HTMLTextAreaElement).value = '';
+                (document.getElementById('adminMsgDuration') as HTMLInputElement).value = '';
+              }}
+              className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm"
+            >
+              Отправить сообщение
+            </button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">💬 Общий чат ({store.getChatMessages().length} сообщений)</h3>
+            <div className="max-h-96 overflow-y-auto space-y-2">
+              {store.getChatMessages().slice(-20).reverse().map(msg => (
+                <div key={msg.id} className="bg-slate-700/50 rounded-lg p-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-cyan-400 font-bold">{msg.nickname}</span>
+                    <span className="text-xs text-slate-500">{new Date(msg.timestamp).toLocaleString()}</span>
+                  </div>
+                  <div className="text-sm text-slate-300 mt-1">{msg.text}</div>
+                </div>
+              ))}
+            </div>
+            <button onClick={() => { localStorage.setItem('skln_chat', JSON.stringify([])); alert('Чат очищен'); refreshUser(); }} className="px-4 py-2 bg-red-600 rounded-lg text-sm">Очистить весь чат</button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">💬 Чаты кланов</h3>
+            {store.getClans().map(clan => {
+              const messages = store.getClanChat(clan.id);
+              return (
+                <div key={clan.id} className="bg-slate-700/50 rounded-lg p-3">
+                  <div className="font-medium text-sm mb-2">{clan.name} [{clan.tag}] ({messages.length} сообщений)</div>
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {messages.slice(-5).map(msg => (
+                      <div key={msg.id} className="text-xs bg-slate-600/50 rounded p-2">
+                        <span className="text-cyan-400">{msg.nickname}:</span> {msg.text}
+                      </div>
+                    ))}
+                  </div>
+                  <button 
+                    onClick={() => {
+                      store.clearClanChat(clan.id);
+                      refreshUser();
+                    }}
+                    className="mt-2 px-3 py-1 bg-red-600 rounded text-xs"
+                  >
+                    Очистить чат клана
+                  </button>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {tab === 'settings' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">⚙️ Настройки игры</h3>
-          <p className="text-sm text-slate-400">Время на ход: {store.getSettings().turnTime} сек</p>
-          <p className="text-sm text-slate-400">XP за победу: {store.getSettings().xpPerWin}</p>
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">⚙️ Основные настройки игры</h3>
+            
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Время на ход (секунды)</label>
+              <input 
+                type="number"
+                value={store.getSettings().turnTime}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.turnTime = parseInt(e.target.value) || 30;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">XP за победу</label>
+              <input 
+                type="number"
+                value={store.getSettings().xpPerWin}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.xpPerWin = parseInt(e.target.value) || 50;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">XP за выстрел</label>
+              <input 
+                type="number"
+                value={store.getSettings().xpPerShot}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.xpPerShot = parseInt(e.target.value) || 1;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">XP за точный выстрел</label>
+              <input 
+                type="number"
+                value={store.getSettings().xpPerAccuracy}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.xpPerAccuracy = parseInt(e.target.value) || 5;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm text-slate-400 mb-1">Пороги уровней (через запятую)</label>
+              <input 
+                type="text"
+                value={store.getSettings().levelThresholds.join(', ')}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.levelThresholds = e.target.value.split(',').map(n => parseInt(n.trim()) || 0);
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">📢 Отображение на главной странице</h3>
+            
+            <label className="flex items-center gap-2 text-sm">
+              <input 
+                type="checkbox" 
+                checked={store.getSettings().showAnnouncements}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.showAnnouncements = e.target.checked;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="rounded"
+              />
+              Показывать объявления
+            </label>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input 
+                type="checkbox" 
+                checked={store.getSettings().showTournamentHistory}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.showTournamentHistory = e.target.checked;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="rounded"
+              />
+              Показывать историю турниров
+            </label>
+
+            <label className="flex items-center gap-2 text-sm">
+              <input 
+                type="checkbox" 
+                checked={store.getSettings().pinAdminMessages}
+                onChange={(e) => {
+                  const settings = store.getSettings();
+                  settings.pinAdminMessages = e.target.checked;
+                  store.saveSettings(settings);
+                  refreshUser();
+                }}
+                className="rounded"
+              />
+              Закреплять админские сообщения в чате
+            </label>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">🎮 Игровые параметры</h3>
+            <p className="text-sm text-slate-400">Количество пропусков ходов до поражения: 2</p>
+            <p className="text-sm text-slate-400">Размер поля: 10x10</p>
+            <p className="text-sm text-slate-400">Флот: 1×4-палубный, 2×3-палубных, 3×2-палубных, 4×1-палубных</p>
+            <p className="text-sm text-slate-400">Минимальное расстояние между кораблями: 1 клетка</p>
+          </div>
         </div>
       )}
     </div>
