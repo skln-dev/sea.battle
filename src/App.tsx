@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban, Edit, UserPlus, Clock, Calendar } from 'lucide-react';
-import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminTicket, GuestTicket, Tournament, Announcement } from './types';
+import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban, Edit, UserPlus, Clock, Calendar, Download, Upload } from 'lucide-react';
+import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminTicket, GuestTicket, Tournament, Announcement, RolePermission } from './types';
 import * as store from './store';
 import { generateRandomPlacement, processShot, isAllSunk, getSunkShipCells, getHitCells } from './gameLogic';
 import { v4 as uuidv4 } from 'uuid';
+import * as XLSX from 'xlsx';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -217,18 +218,6 @@ function HomePage() {
           </div>
         )}
 
-        {settings.showTournamentHistory && tournaments.filter(t => t.status === 'finished').length > 0 && (
-          <div className="space-y-2">
-            <h2 className="text-lg font-bold text-cyan-400">📜 История турниров</h2>
-            {tournaments.filter(t => t.status === 'finished').slice(0, 5).map(t => (
-              <div key={t.id} className="bg-slate-800/50 border border-slate-700 rounded-lg p-3">
-                <h3 className="font-bold text-sm">{t.name}</h3>
-                <div className="text-xs text-slate-500 mt-1">{new Date(t.endTime).toLocaleDateString()}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <Link to="/rooms" className="flex flex-col items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg"><Gamepad2 className="w-5 h-5 text-cyan-400" /><div className="text-sm font-medium">Играть</div></Link>
           <Link to="/rating" className="flex flex-col items-center gap-2 p-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700 rounded-lg"><Trophy className="w-5 h-5 text-cyan-400" /><div className="text-sm font-medium">Рейтинг</div></Link>
@@ -371,14 +360,17 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
     navigate(`/game/${game.id}`);
   };
 
-  const playWithAI = () => { if (currentUser) startGame(currentUser.id, 'ai'); };
+  const playWithAI = () => {
+    const playerId = currentUser?.id || 'guest';
+    startGame(playerId, 'ai');
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Комнаты</h2>
         <div className="flex gap-2">
-          <button onClick={playWithAI} className="px-4 py-2 bg-purple-600 rounded-lg text-sm">ИИ</button>
+          <button onClick={playWithAI} className="px-4 py-2 bg-purple-600 rounded-lg text-sm">🤖 ИИ</button>
           {currentUser && currentUser.id !== 'guest' && <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><Plus className="w-4 h-4 inline" /> Создать</button>}
         </div>
       </div>
@@ -397,7 +389,7 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
               <div className="font-medium">{room.name}</div>
               <div className="text-sm text-slate-400">{room.players.length}/{room.maxPlayers}</div>
             </div>
-            <button onClick={() => currentUser && startGame(currentUser.id, room.players[0])} disabled={!currentUser} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">Войти</button>
+            <button onClick={() => { const playerId = currentUser?.id || 'guest'; startGame(playerId, room.players[0]); }} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">Войти</button>
           </div>
         ))}
         {rooms.length === 0 && <p className="text-slate-500 text-center py-8">Нет комнат</p>}
@@ -409,31 +401,108 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
 function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
   const gameId = window.location.pathname.split('/').pop()!;
   const [game, setGame] = useState<Game | null>(null);
+  const [turnTimer, setTurnTimer] = useState(30);
   const [placementMode, setPlacementMode] = useState(false);
   const [myBoard, setMyBoard] = useState(generateRandomPlacement());
   const [placementError, setPlacementError] = useState('');
-  const [draggedShip, setDraggedShip] = useState<number | null>(null);
+  const [selectedShipSize, setSelectedShipSize] = useState<number | null>(null);
   const [isVertical, setIsVertical] = useState(false);
+  const playerId = currentUser?.id || 'guest';
 
   useEffect(() => { 
     const g = store.getGames().find(x => x.id === gameId);
     if (g) {
       setGame(g);
-      const playerBoard = currentUser?.id === g.player1Id ? g.player1Board : g.player2Board;
+      const playerBoard = playerId === g.player1Id ? g.player1Board : g.player2Board;
       setMyBoard(playerBoard);
     }
   }, [gameId]);
 
+  useEffect(() => {
+    if (!game || game.status !== 'playing') return;
+    const settings = store.getSettings();
+    setTurnTimer(settings.turnTime);
+    
+    const interval = setInterval(() => {
+      setTurnTimer(prev => {
+        if (prev <= 1) {
+          handleMissTurn();
+          return settings.turnTime;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [game?.currentTurn, game?.status]);
+
   if (!game) return <div>Загрузка...</div>;
 
+  const handleMissTurn = () => {
+    if (!game) return;
+    if (game.currentTurn === game.player1Id) {
+      game.player1MissedTurns++;
+      if (game.player1MissedTurns >= 2) {
+        game.status = 'finished';
+        game.winner = game.player2Id;
+      }
+    } else {
+      game.player2MissedTurns++;
+      if (game.player2MissedTurns >= 2) {
+        game.status = 'finished';
+        game.winner = game.player1Id;
+      }
+    }
+    game.currentTurn = game.currentTurn === game.player1Id ? game.player2Id : game.player1Id;
+    store.saveGame(game);
+    setGame({ ...game });
+  };
+
   const handleShot = (row: number, col: number) => {
-    if (!currentUser || game.currentTurn !== currentUser.id) return;
-    const targetBoard = currentUser.id === game.player1Id ? game.player2Board : game.player1Board;
+    if (game.currentTurn !== playerId) return;
+    const targetBoard = playerId === game.player1Id ? game.player2Board : game.player1Board;
     if (targetBoard.shots.some(s => s.row === row && s.col === col) || targetBoard.missedShots.some(s => s.row === row && s.col === col)) return;
 
     const result = processShot(targetBoard, row, col);
-    if (isAllSunk(targetBoard)) { game.status = 'finished'; game.winner = currentUser.id; }
-    else if (!result.hit) game.currentTurn = game.player1Id === currentUser.id ? game.player2Id : game.player1Id;
+    
+    if (isAllSunk(targetBoard)) {
+      game.status = 'finished';
+      game.winner = playerId;
+      game.endTime = new Date().toISOString();
+    } else if (!result.hit) {
+      game.currentTurn = game.player1Id === playerId ? game.player2Id : game.player1Id;
+    }
+
+    store.saveGame(game);
+    setGame({ ...game });
+
+    if (game.player2Id === 'ai' && game.currentTurn === 'ai' && game.status === 'playing') {
+      setTimeout(() => aiTurn(), 1000);
+    }
+  };
+
+  const aiTurn = () => {
+    if (!game || game.status !== 'playing') return;
+    const targetBoard = game.player1Board;
+    let row = Math.floor(Math.random() * 10);
+    let col = Math.floor(Math.random() * 10);
+    let attempts = 0;
+    
+    while ((targetBoard.shots.some(s => s.row === row && s.col === col) || targetBoard.missedShots.some(s => s.row === row && s.col === col)) && attempts < 100) {
+      row = Math.floor(Math.random() * 10);
+      col = Math.floor(Math.random() * 10);
+      attempts++;
+    }
+
+    const result = processShot(targetBoard, row, col);
+    
+    if (isAllSunk(targetBoard)) {
+      game.status = 'finished';
+      game.winner = 'ai';
+      game.endTime = new Date().toISOString();
+    } else if (!result.hit) {
+      game.currentTurn = playerId;
+    }
 
     store.saveGame(game);
     setGame({ ...game });
@@ -465,7 +534,7 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
 
   const confirmPlacement = () => {
     if (!validatePlacement(myBoard)) return;
-    if (currentUser?.id === game.player1Id) {
+    if (playerId === game.player1Id) {
       game.player1Board = myBoard;
     } else {
       game.player2Board = myBoard;
@@ -478,26 +547,170 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   const randomPlacement = () => {
     setMyBoard(generateRandomPlacement());
     setPlacementError('');
+    setSelectedShipSize(null);
   };
+
+  const canPlaceShip = (board: any, row: number, col: number, size: number, vertical: boolean): boolean => {
+    // Проверка границ
+    if (vertical) {
+      if (row + size > 10) return false;
+    } else {
+      if (col + size > 10) return false;
+    }
+
+    // Проверка клеток и окружения
+    for (let i = 0; i < size; i++) {
+      const r = vertical ? row + i : row;
+      const c = vertical ? col : col + i;
+
+      // Проверка самой клетки
+      if (board.ships.some((ship: any) => ship.cells.some((cell: any) => cell.row === r && cell.col === c))) {
+        return false;
+      }
+
+      // Проверка окружения (8 соседних клеток)
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = r + dr;
+          const nc = c + dc;
+          if (nr >= 0 && nr < 10 && nc >= 0 && nc < 10) {
+            if (board.ships.some((ship: any) => ship.cells.some((cell: any) => cell.row === nr && cell.col === nc))) {
+              // Разрешаем если это часть того же корабля (для многоклеточных)
+              const isSameShip = board.ships.some((ship: any) => 
+                ship.cells.some((cell: any) => cell.row === r && cell.col === c) &&
+                ship.cells.some((cell: any) => cell.row === nr && cell.col === nc)
+              );
+              if (!isSameShip) return false;
+            }
+          }
+        }
+      }
+    }
+
+    return true;
+  };
+
+  const placeShip = (row: number, col: number) => {
+    if (selectedShipSize === null) return;
+
+    const newBoard = { ...myBoard, ships: [...myBoard.ships] };
+    
+    if (!canPlaceShip(newBoard, row, col, selectedShipSize, isVertical)) {
+      setPlacementError('Нельзя разместить корабль здесь (слишком близко к другим или выходит за границы)');
+      return;
+    }
+
+    const cells = [];
+    for (let i = 0; i < selectedShipSize; i++) {
+      cells.push({
+        row: isVertical ? row + i : row,
+        col: isVertical ? col : col + i
+      });
+    }
+
+    newBoard.ships.push({
+      id: uuidv4(),
+      size: selectedShipSize,
+      cells: cells,
+      hits: 0,
+      sunk: false
+    });
+
+    setMyBoard(newBoard);
+    setPlacementError('');
+    
+    // Автоматически выбираем следующий размер корабля
+    const placedSizes = newBoard.ships.map((s: any) => s.size);
+    const requiredShips = [4, 3, 3, 2, 2, 2, 1, 1, 1, 1];
+    const nextShip = requiredShips.find(size => {
+      const placed = placedSizes.filter((s: number) => s === size).length;
+      const required = requiredShips.filter(s => s === size).length;
+      return placed < required;
+    });
+    
+    setSelectedShipSize(nextShip || null);
+  };
+
+  const isMyTurn = game.currentTurn === playerId;
+  const opponentName = game.player2Id === 'ai' ? 'ИИ' : store.getUserById(game.player2Id)?.nickname || 'Противник';
 
   return (
     <div className="space-y-4">
-      <h2 className="text-xl font-bold">Игра vs {game.player2Id === 'ai' ? 'ИИ' : store.getUserById(game.player2Id)?.nickname}</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold">Игра vs {opponentName}</h2>
+        <div className={`text-2xl font-mono font-bold ${turnTimer <= 5 ? 'text-red-400 animate-pulse' : 'text-cyan-400'}`}>
+          {turnTimer}с
+        </div>
+      </div>
+
+      <div className={`text-sm ${isMyTurn ? 'text-green-400' : 'text-red-400'}`}>
+        {isMyTurn ? '⚡ Ваш ход' : '⏳ Ход противника'}
+      </div>
       
       {placementMode ? (
         <div className="space-y-4">
-          <div className="bg-yellow-900/20 border border-yellow-700 rounded-xl p-4">
-            <h3 className="font-bold text-yellow-400 mb-2">📍 Расставьте корабли</h3>
-            <p className="text-sm text-slate-300">Нажмите "Случайная расстановка" или настройте вручную</p>
+          <div className="bg-blue-900/20 border border-blue-700 rounded-xl p-4">
+            <h3 className="font-bold text-blue-400 mb-2">📍 Как расставлять корабли</h3>
+            <div className="text-sm text-slate-300 space-y-1">
+              <p>• Выберите размер корабля ниже</p>
+              <p>• Выберите ориентацию (горизонтально/вертикально)</p>
+              <p>• Кликните на клетку поля для размещения</p>
+              <p>• Корабли не могут касаться друг друга (минимум 1 клетка между ними)</p>
+              <p>• Флот: 1×4-палубный, 2×3-палубных, 3×2-палубных, 4×1-палубных</p>
+            </div>
             {placementError && <p className="text-sm text-red-400 mt-2">⚠️ {placementError}</p>}
           </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <h4 className="font-bold text-sm mb-3">Выберите корабль для размещения:</h4>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {[4, 3, 2, 1].map(size => {
+                const placed = myBoard.ships.filter((s: any) => s.size === size).length;
+                const required = size === 4 ? 1 : size === 3 ? 2 : size === 2 ? 3 : 4;
+                const remaining = required - placed;
+                return (
+                  <button
+                    key={size}
+                    onClick={() => remaining > 0 && setSelectedShipSize(size)}
+                    disabled={remaining === 0}
+                    className={`px-3 py-2 rounded-lg text-sm ${
+                      selectedShipSize === size ? 'bg-cyan-600' :
+                      remaining === 0 ? 'bg-slate-700 opacity-50 cursor-not-allowed' :
+                      'bg-slate-600 hover:bg-slate-500'
+                    }`}
+                  >
+                    {size}-палубный ({remaining} осталось)
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsVertical(false)}
+                className={`px-3 py-2 rounded-lg text-sm ${!isVertical ? 'bg-cyan-600' : 'bg-slate-600'}`}
+              >
+                ↔️ Горизонтально
+              </button>
+              <button
+                onClick={() => setIsVertical(true)}
+                className={`px-3 py-2 rounded-lg text-sm ${isVertical ? 'bg-cyan-600' : 'bg-slate-600'}`}
+              >
+                ↕️ Вертикально
+              </button>
+            </div>
+          </div>
+
           <div className="flex flex-wrap gap-2">
-            <button onClick={randomPlacement} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">🎲 Случайная</button>
-            <button onClick={() => setIsVertical(!isVertical)} className="px-4 py-2 bg-slate-600 rounded-lg text-sm">{isVertical ? '↕️ Вертикально' : '↔️ Горизонтально'}</button>
+            <button onClick={randomPlacement} className="px-4 py-2 bg-purple-600 rounded-lg text-sm">🎲 Случайная расстановка</button>
             <button onClick={confirmPlacement} className="px-4 py-2 bg-green-600 rounded-lg text-sm">✓ Подтвердить</button>
           </div>
+
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 overflow-x-auto">
-            <GameGrid board={myBoard} showShips />
+            <GameGrid 
+              board={myBoard} 
+              showShips 
+              onPlacementClick={selectedShipSize !== null ? placeShip : undefined}
+            />
           </div>
         </div>
       ) : (
@@ -505,7 +718,7 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
             <h3 className="text-sm text-slate-400 mb-2">Противник</h3>
             <div className="overflow-x-auto">
-              <GameGrid board={currentUser?.id === game.player1Id ? game.player2Board : game.player1Board} onCellClick={game.currentTurn === currentUser?.id ? handleShot : undefined} />
+              <GameGrid board={playerId === game.player1Id ? game.player2Board : game.player1Board} onCellClick={isMyTurn ? handleShot : undefined} />
             </div>
           </div>
           <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -521,7 +734,7 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   );
 }
 
-function GameGrid({ board, onCellClick, showShips }: { board: any; onCellClick?: (row: number, col: number) => void; showShips?: boolean }) {
+function GameGrid({ board, onCellClick, onPlacementClick, showShips }: { board: any; onCellClick?: (row: number, col: number) => void; onPlacementClick?: (row: number, col: number) => void; showShips?: boolean }) {
   const sunkCells = getSunkShipCells(board);
   const labels = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'К'];
 
@@ -540,16 +753,25 @@ function GameGrid({ board, onCellClick, showShips }: { board: any; onCellClick?:
               const isSunk = sunkCells.has(key);
               const hasShip = showShips && board.ships?.some((s: any) => s.cells.some((c: any) => c.row === row && c.col === col));
 
-              let cls = 'w-5 h-5 md:w-6 md:h-6 rounded-sm flex items-center justify-center text-xs ';
+              let cls = 'w-5 h-5 md:w-6 md:h-6 rounded-sm flex items-center justify-center text-xs transition-all ';
               if (isSunk) cls += 'bg-red-600 ';
               else if (isShot) cls += 'bg-red-500/70 ';
               else if (isMiss) cls += 'bg-slate-600 ';
               else if (hasShip) cls += 'bg-cyan-700 ';
               else cls += 'bg-slate-700 hover:bg-slate-600 ';
 
-              if (onCellClick && !isShot && !isMiss) cls += 'cursor-crosshair hover:bg-cyan-600/50 ';
+              if (onPlacementClick && !hasShip) cls += 'cursor-pointer hover:bg-green-600/50 hover:scale-110 ';
+              else if (onCellClick && !isShot && !isMiss) cls += 'cursor-crosshair hover:bg-cyan-600/50 ';
 
-              return <div key={col} className={cls} onClick={() => onCellClick?.(row, col)}>{(isShot || isSunk) && '✕'}{isMiss && '•'}</div>;
+              const handleClick = () => {
+                if (onPlacementClick && !hasShip) {
+                  onPlacementClick(row, col);
+                } else if (onCellClick) {
+                  onCellClick(row, col);
+                }
+              };
+
+              return <div key={col} className={cls} onClick={handleClick}>{(isShot || isSunk) && '✕'}{isMiss && '•'}</div>;
             })}
           </React.Fragment>
         ))}
@@ -608,8 +830,6 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   const [showCreate, setShowCreate] = useState(false);
   const [name, setName] = useState('');
   const [tag, setTag] = useState('');
-  const [color, setColor] = useState('#00ffff');
-  const [logo, setLogo] = useState('⚔️');
 
   useEffect(() => { setClans(store.getClans()); }, []);
 
@@ -617,7 +837,7 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
     if (!currentUser || !name || !tag) return;
     if (tag.length !== 5) { alert('Тег должен быть 5 символов'); return; }
     const clan: Clan = {
-      id: uuidv4(), name, tag, logo, color,
+      id: uuidv4(), name, tag, logo: '⚔️', color: '#00ffff',
       creatorId: currentUser.id, members: [currentUser.id],
       wins: 0, losses: 0, draws: 0, createdAt: new Date().toISOString(),
     };
@@ -763,42 +983,14 @@ function ProfilePage({ currentUser, refreshUser }: { currentUser: User | null; r
   );
 }
 
-function FederationsPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
+function FederationsPage({ currentUser }: { currentUser: User | null; refreshUser: () => void }) {
   const [federations, setFederations] = useState<Federation[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
-  const [name, setName] = useState('');
 
   useEffect(() => { setFederations(store.getFederations()); }, []);
 
-  const createFederation = () => {
-    if (!currentUser || !name) return;
-    const fed: Federation = {
-      id: uuidv4(), name, creatorId: currentUser.id,
-      clans: [], members: [currentUser.id],
-      wins: 0, losses: 0, createdAt: new Date().toISOString(),
-    };
-    store.saveFederation(fed);
-    setFederations(store.getFederations());
-    setShowCreate(false);
-    setName('');
-  };
-
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold">🏛️ Федерации</h2>
-        {currentUser && currentUser.id !== 'guest' && (
-          <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><Plus className="w-4 h-4 inline" /> Создать</button>
-        )}
-      </div>
-
-      {showCreate && (
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 space-y-3">
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Название федерации" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
-          <button onClick={createFederation} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Создать</button>
-        </div>
-      )}
-
+      <h2 className="text-2xl font-bold">🏛️ Федерации</h2>
       <div className="space-y-3">
         {federations.map(fed => (
           <div key={fed.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
@@ -884,6 +1076,10 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   const [banUserId, setBanUserId] = useState('');
   const [banReason, setBanReason] = useState('');
   const [banDuration, setBanDuration] = useState('');
+  const [editUserId, setEditUserId] = useState('');
+  const [editNickname, setEditNickname] = useState('');
+  const [editXP, setEditXP] = useState('');
+  const [permissions, setPermissions] = useState<RolePermission[]>(store.getRolePermissions());
 
   if (!currentUser || currentUser.role !== 'admin') return <div className="text-center py-12 text-red-400">Доступ запрещён</div>;
 
@@ -897,6 +1093,32 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
     store.saveUser(user);
     setUsers(store.getUsers());
     setBanUserId(''); setBanReason(''); setBanDuration('');
+  };
+
+  const editUser = () => {
+    if (!editUserId) return;
+    const user = store.getUserById(editUserId);
+    if (!user) return;
+    if (editNickname) user.nickname = editNickname;
+    if (editXP) user.xp = parseInt(editXP);
+    store.saveUser(user);
+    setUsers(store.getUsers());
+    setEditUserId(''); setEditNickname(''); setEditXP('');
+  };
+
+  const deleteUser = (userId: string) => {
+    if (!confirm('Удалить пользователя?')) return;
+    const allUsers = store.getUsers().filter(u => u.id !== userId);
+    localStorage.setItem('skln_users', JSON.stringify(allUsers));
+    setUsers(allUsers);
+  };
+
+  const updatePermission = (permId: string, field: keyof RolePermission, value: boolean) => {
+    const perm = permissions.find(p => p.id === permId);
+    if (!perm) return;
+    (perm as any)[field] = value;
+    store.saveRolePermission(perm);
+    setPermissions([...permissions]);
   };
 
   return (
@@ -916,6 +1138,20 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
 
       {tab === 'users' && (
         <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">✏️ Редактировать пользователя</h3>
+            <select value={editUserId} onChange={e => setEditUserId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
+              <option value="">-- Выберите --</option>
+              {users.filter(u => u.role === 'player').map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}
+            </select>
+            <input value={editNickname} onChange={e => setEditNickname(e.target.value)} placeholder="Новый ник" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+            <input value={editXP} onChange={e => setEditXP(e.target.value)} placeholder="Новый XP" type="number" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+            <div className="flex gap-2">
+              <button onClick={editUser} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Сохранить</button>
+              {editUserId && <button onClick={() => deleteUser(editUserId)} className="px-4 py-2 bg-red-600 rounded-lg text-sm">Удалить</button>}
+            </div>
+          </div>
+
           <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
             <h3 className="font-bold">🚫 Бан пользователя</h3>
             <select value={banUserId} onChange={e => setBanUserId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
@@ -939,6 +1175,47 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {tab === 'permissions' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-4">
+          <h3 className="font-bold text-lg">🔐 Настройка прав ролей</h3>
+          {permissions.map(perm => (
+            <div key={perm.id} className="bg-slate-700/50 rounded-lg p-4 space-y-3">
+              <h4 className="font-bold text-cyan-400 capitalize">{perm.role === 'guest' ? 'Гость' : perm.role === 'player' ? 'Игрок' : 'Админ'}</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canChat} onChange={e => updatePermission(perm.id, 'canChat', e.target.checked)} className="rounded" />
+                  Может писать в чат
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canCreateClan} onChange={e => updatePermission(perm.id, 'canCreateClan', e.target.checked)} className="rounded" />
+                  Может создавать кланы
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canCreateRoom} onChange={e => updatePermission(perm.id, 'canCreateRoom', e.target.checked)} className="rounded" />
+                  Может создавать комнаты
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canPlayWithAI} onChange={e => updatePermission(perm.id, 'canPlayWithAI', e.target.checked)} className="rounded" />
+                  Может играть с ИИ
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canSeeRating} onChange={e => updatePermission(perm.id, 'canSeeRating', e.target.checked)} className="rounded" />
+                  Может видеть рейтинг
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canCreateFederation} onChange={e => updatePermission(perm.id, 'canCreateFederation', e.target.checked)} className="rounded" />
+                  Может создавать федерации
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={perm.canSendSupport} onChange={e => updatePermission(perm.id, 'canSendSupport', e.target.checked)} className="rounded" />
+                  Может отправлять в поддержку
+                </label>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -972,29 +1249,218 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
       )}
 
       {tab === 'schools' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">🏫 Школы</h3>
-          {store.getSchools().filter(s => !s.approved).map(s => (
-            <div key={s.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">{s.name}</div>
-                <div className="text-xs text-slate-400">{s.city}</div>
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">📥 Импорт школ из Excel</h3>
+            <p className="text-sm text-slate-400">Формат: name, region, area, city, address, buildingNumber</p>
+            <input 
+              type="file" 
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                  const data = new Uint8Array(event.target?.result as ArrayBuffer);
+                  const workbook = XLSX.read(data, { type: 'array' });
+                  const sheetName = workbook.SheetNames[0];
+                  const worksheet = workbook.Sheets[sheetName];
+                  const json = XLSX.utils.sheet_to_json(worksheet) as any[];
+                  
+                  let imported = 0;
+                  json.forEach(row => {
+                    if (row.name && row.city) {
+                      const school: SchoolType = {
+                        id: uuidv4(),
+                        name: row.name,
+                        region: row.region || '',
+                        area: row.area || '',
+                        city: row.city,
+                        address: row.address || '',
+                        buildingNumber: row.buildingNumber || '',
+                        approved: true,
+                        createdAt: new Date().toISOString(),
+                        students: []
+                      };
+                      store.saveSchool(school);
+                      imported++;
+                    }
+                  });
+                  alert(`Импортировано школ: ${imported}`);
+                  refreshUser();
+                };
+                reader.readAsArrayBuffer(file);
+              }}
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm"
+            />
+            <button 
+              onClick={() => {
+                const csv = 'name,region,area,city,address,buildingNumber\nШкола №1,Московская область,Одинцовский,Одинцово,ул. Ленина,15\nГимназия №5,Московская область,Красногорский,Красногорск,ул. Школьная,3';
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'schools_template.csv';
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+              className="inline-block px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm"
+            >
+              📄 Скачать шаблон CSV
+            </button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">🏫 Заявки на одобрение</h3>
+            {store.getSchools().filter(s => !s.approved).map(s => (
+              <div key={s.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">{s.name}</div>
+                  <div className="text-xs text-slate-400">{s.city}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { s.approved = true; store.saveSchool(s); refreshUser(); }} className="px-3 py-1 bg-green-600 rounded text-xs">✓ Одобрить</button>
+                  <button onClick={() => { if (confirm('Отклонить заявку?')) { const schools = store.getSchools().filter(x => x.id !== s.id); localStorage.setItem('skln_schools', JSON.stringify(schools)); refreshUser(); } }} className="px-3 py-1 bg-red-600 rounded text-xs">✕ Отклонить</button>
+                </div>
               </div>
-              <button onClick={() => { s.approved = true; store.saveSchool(s); }} className="px-3 py-1 bg-green-600 rounded text-xs">✓</button>
-            </div>
-          ))}
+            ))}
+            {store.getSchools().filter(s => !s.approved).length === 0 && <p className="text-slate-500 text-sm">Нет заявок</p>}
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">🏫 Все школы ({store.getSchools().filter(s => s.approved).length})</h3>
+            {store.getSchools().filter(s => s.approved).map(s => (
+              <div key={s.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">{s.name}</div>
+                  <div className="text-xs text-slate-400">{s.city} • {s.students.length} учеников</div>
+                </div>
+                <button onClick={() => { if (confirm('Удалить школу?')) { const schools = store.getSchools().filter(x => x.id !== s.id); localStorage.setItem('skln_schools', JSON.stringify(schools)); refreshUser(); } }} className="p-1.5 bg-red-600 rounded"><Trash2 className="w-3 h-3" /></button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
       {tab === 'clans' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">🛡️ Кланы ({store.getClans().length})</h3>
-          {store.getClans().map(c => (
-            <div key={c.id} className="bg-slate-700/50 rounded-lg p-3">
-              <div className="text-sm font-medium">{c.name} [{c.tag}]</div>
-              <div className="text-xs text-slate-400">{c.members.length} участников</div>
+        <div className="space-y-4">
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">➕ Создать новый клан</h3>
+            <input 
+              id="newClanName"
+              placeholder="Название клана" 
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" 
+            />
+            <input 
+              id="newClanTag"
+              placeholder="Тег (5 символов)" 
+              maxLength={5}
+              className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" 
+            />
+            <button 
+              onClick={() => {
+                const name = (document.getElementById('newClanName') as HTMLInputElement).value;
+                const tag = (document.getElementById('newClanTag') as HTMLInputElement).value;
+                if (!name || !tag || tag.length !== 5) {
+                  alert('Заполните все поля. Тег должен быть ровно 5 символов.');
+                  return;
+                }
+                const clan: Clan = {
+                  id: uuidv4(),
+                  name,
+                  tag,
+                  logo: '⚔️',
+                  color: '#00ffff',
+                  creatorId: currentUser.id,
+                  members: [],
+                  wins: 0,
+                  losses: 0,
+                  draws: 0,
+                  createdAt: new Date().toISOString()
+                };
+                store.saveClan(clan);
+                refreshUser();
+              }}
+              className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm"
+            >
+              Создать клан
+            </button>
+          </div>
+
+          <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+            <h3 className="font-bold">🛡️ Все кланы ({store.getClans().length})</h3>
+            {store.getClans().map(c => (
+              <div key={c.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">{c.name} [{c.tag}]</div>
+                  <div className="text-xs text-slate-400">{c.members.length} участников • Побед: {c.wins} • Поражений: {c.losses}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => {
+                      const newName = prompt('Новое название клана:', c.name);
+                      if (newName && newName !== c.name) {
+                        c.name = newName;
+                        store.saveClan(c);
+                        refreshUser();
+                      }
+                    }}
+                    className="p-1.5 bg-blue-600 rounded"
+                    title="Редактировать"
+                  >
+                    <Edit className="w-3 h-3" />
+                  </button>
+                  <button 
+                    onClick={() => {
+                      const saveHistory = confirm('Сохранить историю и статистику клана?');
+                      if (saveHistory) {
+                        // Сохраняем в историю
+                        const history = JSON.parse(localStorage.getItem('clan_history') || '[]');
+                        history.push({
+                          ...c,
+                          deletedAt: new Date().toISOString(),
+                          reason: 'Удалено администратором'
+                        });
+                        localStorage.setItem('clan_history', JSON.stringify(history));
+                      }
+                      
+                      // Удаляем клан
+                      const clans = store.getClans().filter(x => x.id !== c.id);
+                      localStorage.setItem('skln_clans', JSON.stringify(clans));
+                      
+                      // Убираем clanId у участников
+                      c.members.forEach(memberId => {
+                        const user = store.getUserById(memberId);
+                        if (user) {
+                          user.clanId = undefined;
+                          store.saveUser(user);
+                        }
+                      });
+                      
+                      refreshUser();
+                    }}
+                    className="p-1.5 bg-red-600 rounded"
+                    title="Удалить"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {JSON.parse(localStorage.getItem('clan_history') || '[]').length > 0 && (
+            <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+              <h3 className="font-bold">📜 История удалённых кланов</h3>
+              {JSON.parse(localStorage.getItem('clan_history') || '[]').map((c: any, i: number) => (
+                <div key={i} className="bg-slate-700/50 rounded-lg p-3">
+                  <div className="text-sm font-medium">{c.name} [{c.tag}]</div>
+                  <div className="text-xs text-slate-400">Удалён: {new Date(c.deletedAt).toLocaleString()}</div>
+                  <div className="text-xs text-slate-500">Статистика: Побед: {c.wins} • Поражений: {c.losses}</div>
+                </div>
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 
@@ -1022,13 +1488,6 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           <h3 className="font-bold">⚙️ Настройки игры</h3>
           <p className="text-sm text-slate-400">Время на ход: {store.getSettings().turnTime} сек</p>
           <p className="text-sm text-slate-400">XP за победу: {store.getSettings().xpPerWin}</p>
-        </div>
-      )}
-
-      {tab === 'permissions' && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">🔐 Права ролей</h3>
-          <p className="text-sm text-slate-400">Настройка прав для guest, player, admin</p>
         </div>
       )}
     </div>
