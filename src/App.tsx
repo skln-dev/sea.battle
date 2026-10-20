@@ -1,6 +1,6 @@
-import React, { useState, useEffect, Fragment } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
-import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban } from 'lucide-react';
+import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogOut, User as UserIcon, Gamepad2, Swords, Crown, Plus, Send, Heart, Star, Menu, Mail, Check, Trash2, Ban, Edit, UserPlus } from 'lucide-react';
 import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminTicket, GuestTicket } from './types';
 import * as store from './store';
 import { generateRandomPlacement, processShot, isAllSunk, getSunkShipCells, getHitCells } from './gameLogic';
@@ -39,7 +39,9 @@ export default function App() {
                 <Link to="/rating" className="text-sm text-slate-300 hover:text-cyan-400">Рейтинг</Link>
                 <Link to="/chat" className="text-sm text-slate-300 hover:text-cyan-400">Чат</Link>
                 <Link to="/clans" className="text-sm text-slate-300 hover:text-cyan-400">Кланы</Link>
+                <Link to="/federation" className="text-sm text-slate-300 hover:text-cyan-400">Федерации</Link>
                 <Link to="/support" className="text-sm text-slate-300 hover:text-cyan-400">Поддержка</Link>
+                {currentUser && <Link to="/profile" className="text-sm text-slate-300 hover:text-cyan-400">Профиль</Link>}
                 {currentUser?.role === 'admin' && <Link to="/admin" className="text-sm text-slate-300 hover:text-cyan-400">Админ</Link>}
               </div>
               <div className="hidden md:flex items-center gap-3">
@@ -68,6 +70,8 @@ export default function App() {
             <Route path="/game/:gameId" element={<GamePlayPage currentUser={currentUser} refreshUser={refreshUser} />} />
             <Route path="/chat" element={<ChatPage currentUser={currentUser} refreshUser={refreshUser} />} />
             <Route path="/clans" element={<ClansPage currentUser={currentUser} refreshUser={refreshUser} />} />
+            <Route path="/profile" element={<ProfilePage currentUser={currentUser} refreshUser={refreshUser} />} />
+            <Route path="/federation" element={<FederationsPage currentUser={currentUser} refreshUser={refreshUser} />} />
             <Route path="/rating" element={<RatingPage />} />
             <Route path="/support" element={<SupportPage currentUser={currentUser} />} />
             <Route path="/admin" element={<AdminPage currentUser={currentUser} refreshUser={refreshUser} />} />
@@ -255,10 +259,8 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [showCreate, setShowCreate] = useState(false);
   const [roomName, setRoomName] = useState('');
-  const [selectedSchoolId, setSelectedSchoolId] = useState('');
   const navigate = useNavigate();
 
-  const schools = store.getSchools().filter(s => s.approved);
   useEffect(() => { setRooms(store.getRooms()); }, []);
 
   const startGame = (p1Id: string, p2Id: string) => {
@@ -279,19 +281,15 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Комнаты</h2>
         <div className="flex gap-2">
-          {currentUser && <button onClick={playWithAI} className="px-4 py-2 bg-purple-600 rounded-lg text-sm">ИИ</button>}
+          <button onClick={playWithAI} className="px-4 py-2 bg-purple-600 rounded-lg text-sm">ИИ</button>
           {currentUser && currentUser.id !== 'guest' && <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><Plus className="w-4 h-4 inline" /> Создать</button>}
         </div>
       </div>
 
-      {showCreate && (
+      {showCreate && currentUser && (
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 space-y-3">
-          <select value={selectedSchoolId} onChange={e => setSelectedSchoolId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
-            <option value="">-- Школа --</option>
-            {schools.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
           <input value={roomName} onChange={e => setRoomName(e.target.value)} placeholder="Название" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
-          <button onClick={() => { if (currentUser && roomName && selectedSchoolId) { store.saveRoom({ id: uuidv4(), name: roomName, creatorId: currentUser.id, players: [currentUser.id], maxPlayers: 2, isPrivate: false, createdAt: new Date().toISOString(), schoolId: selectedSchoolId }); setRooms(store.getRooms()); setShowCreate(false); } }} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Создать</button>
+          <button onClick={() => { if (roomName) { store.saveRoom({ id: uuidv4(), name: roomName, creatorId: currentUser.id, players: [currentUser.id], maxPlayers: 2, isPrivate: false, createdAt: new Date().toISOString(), schoolId: currentUser.schoolId }); setRooms(store.getRooms()); setShowCreate(false); } }} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Создать</button>
         </div>
       )}
 
@@ -314,8 +312,19 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
 function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
   const gameId = window.location.pathname.split('/').pop()!;
   const [game, setGame] = useState<Game | null>(null);
+  const [placementMode, setPlacementMode] = useState(false);
+  const [myBoard, setMyBoard] = useState(generateRandomPlacement());
+  const [placementError, setPlacementError] = useState('');
 
-  useEffect(() => { setGame(store.getGames().find(x => x.id === gameId) || null); }, [gameId]);
+  useEffect(() => { 
+    const g = store.getGames().find(x => x.id === gameId);
+    if (g) {
+      setGame(g);
+      // Установить доску игрока
+      const playerBoard = currentUser?.id === g.player1Id ? g.player1Board : g.player2Board;
+      setMyBoard(playerBoard);
+    }
+  }, [gameId]);
 
   if (!game) return <div>Загрузка...</div>;
 
@@ -332,19 +341,81 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
     setGame({ ...game });
   };
 
+  const validatePlacement = (board: any): boolean => {
+    // Проверка что все корабли расставлены
+    if (board.ships.length !== 10) {
+      setPlacementError('Не все корабли расставлены');
+      return false;
+    }
+    // Проверка что между кораблями есть минимум 1 клетка
+    for (let i = 0; i < board.ships.length; i++) {
+      for (let j = i + 1; j < board.ships.length; j++) {
+        const ship1 = board.ships[i];
+        const ship2 = board.ships[j];
+        for (const c1 of ship1.cells) {
+          for (const c2 of ship2.cells) {
+            const dist = Math.abs(c1.row - c2.row) + Math.abs(c1.col - c2.col);
+            if (dist === 1) {
+              setPlacementError('Корабли должны быть на расстоянии минимум 1 клетки');
+              return false;
+            }
+          }
+        }
+      }
+    }
+    setPlacementError('');
+    return true;
+  };
+
+  const confirmPlacement = () => {
+    if (!validatePlacement(myBoard)) return;
+    if (currentUser?.id === game.player1Id) {
+      game.player1Board = myBoard;
+    } else {
+      game.player2Board = myBoard;
+    }
+    store.saveGame(game);
+    setGame({ ...game });
+    setPlacementMode(false);
+  };
+
+  const randomPlacement = () => {
+    setMyBoard(generateRandomPlacement());
+    setPlacementError('');
+  };
+
   return (
     <div className="space-y-4">
       <h2 className="text-xl font-bold">Игра vs {game.player2Id === 'ai' ? 'ИИ' : store.getUserById(game.player2Id)?.nickname}</h2>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-          <h3 className="text-sm text-slate-400 mb-2">Противник</h3>
-          <GameGrid board={currentUser?.id === game.player1Id ? game.player2Board : game.player1Board} onCellClick={game.currentTurn === currentUser?.id ? handleShot : undefined} />
+      
+      {placementMode ? (
+        <div className="space-y-4">
+          <div className="bg-yellow-900/20 border border-yellow-700 rounded-xl p-4">
+            <h3 className="font-bold text-yellow-400 mb-2">📍 Расставьте корабли</h3>
+            <p className="text-sm text-slate-300">Автоматическая расстановка или настройте вручную</p>
+            {placementError && <p className="text-sm text-red-400 mt-2">⚠️ {placementError}</p>}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={randomPlacement} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">🎲 Случайная расстановка</button>
+            <button onClick={confirmPlacement} className="px-4 py-2 bg-green-600 rounded-lg text-sm">✓ Подтвердить</button>
+          </div>
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <GameGrid board={myBoard} showShips />
+          </div>
         </div>
-        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
-          <h3 className="text-sm text-slate-400 mb-2">Ваше поле</h3>
-          <GameGrid board={currentUser?.id === game.player1Id ? game.player1Board : game.player2Board} showShips />
+      ) : (
+        <div className="grid grid-cols-2 gap-4">
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <h3 className="text-sm text-slate-400 mb-2">Противник</h3>
+            <GameGrid board={currentUser?.id === game.player1Id ? game.player2Board : game.player1Board} onCellClick={game.currentTurn === currentUser?.id ? handleShot : undefined} />
+          </div>
+          <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <h3 className="text-sm text-slate-400 mb-2">Ваше поле</h3>
+            <GameGrid board={myBoard} showShips />
+            <button onClick={() => setPlacementMode(true)} className="mt-2 px-3 py-1 bg-slate-600 hover:bg-slate-500 rounded text-xs">Изменить расстановку</button>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -433,21 +504,156 @@ function ChatPage({ currentUser, refreshUser }: { currentUser: User | null; refr
 
 function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
   const [clans, setClans] = useState<Clan[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+  const [tag, setTag] = useState('');
+  const [color, setColor] = useState('#00ffff');
+  const [logo, setLogo] = useState('⚔️');
+  const [selectedClan, setSelectedClan] = useState<Clan | null>(null);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteUserId, setInviteUserId] = useState('');
+
   useEffect(() => { setClans(store.getClans()); }, []);
+
+  const createClan = () => {
+    if (!currentUser || !name || !tag) return;
+    if (tag.length !== 5) { alert('Тег должен быть 5 символов'); return; }
+    const clan: Clan = {
+      id: uuidv4(), name, tag, logo, color,
+      creatorId: currentUser.id, members: [currentUser.id],
+      wins: 0, losses: 0, draws: 0, createdAt: new Date().toISOString(),
+    };
+    store.saveClan(clan);
+    const user = { ...currentUser, clanId: clan.id };
+    store.saveUser(user);
+    setClans(store.getClans());
+    setShowCreate(false);
+    refreshUser();
+  };
+
+  const transferLeadership = (newLeaderId: string) => {
+    if (!selectedClan || !currentUser) return;
+    if (selectedClan.creatorId !== currentUser.id) { alert('Только лидер может передать права'); return; }
+    selectedClan.creatorId = newLeaderId;
+    store.saveClan(selectedClan);
+    setClans(store.getClans());
+    setSelectedClan({ ...selectedClan });
+    alert('Права лидера переданы');
+  };
+
+  const inviteToClan = () => {
+    if (!selectedClan || !inviteUserId || !currentUser) return;
+    if (selectedClan.creatorId !== currentUser.id) { alert('Только лидер может приглашать'); return; }
+    const user = store.getUserById(inviteUserId);
+    if (!user) return;
+    if (user.clanId) { alert('Пользователь уже в клане'); return; }
+    user.clanId = selectedClan.id;
+    store.saveUser(user);
+    selectedClan.members.push(inviteUserId);
+    store.saveClan(selectedClan);
+    setClans(store.getClans());
+    setSelectedClan({ ...selectedClan });
+    setInviteUserId('');
+    setShowInvite(false);
+    alert('Пользователь добавлен в клан');
+  };
+
+  const joinClan = (clanId: string) => {
+    if (!currentUser) return;
+    const clan = store.getClans().find(c => c.id === clanId);
+    if (!clan) return;
+    if (!clan.members.includes(currentUser.id)) {
+      clan.members.push(currentUser.id);
+      store.saveClan(clan);
+      const user = { ...currentUser, clanId: clan.id };
+      store.saveUser(user);
+      setClans(store.getClans());
+      refreshUser();
+    }
+  };
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      <h2 className="text-2xl font-bold">🛡️ Кланы</h2>
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">🛡️ Кланы</h2>
+        {currentUser && !currentUser.clanId && currentUser.id !== 'guest' && (
+          <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><Plus className="w-4 h-4 inline" /> Создать</button>
+        )}
+      </div>
+
+      {showCreate && (
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 space-y-3">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Название" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+          <input value={tag} onChange={e => setTag(e.target.value.slice(0, 5))} placeholder="Тег (5 символов)" maxLength={5} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+          <button onClick={createClan} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Создать</button>
+        </div>
+      )}
+
+      {selectedClan && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-cyan-700 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-xl font-bold">{selectedClan.name} [{selectedClan.tag}]</h3>
+              <p className="text-sm text-slate-400">{selectedClan.members.length} участников</p>
+            </div>
+            <button onClick={() => setSelectedClan(null)} className="text-slate-400 hover:text-white">✕</button>
+          </div>
+
+          <div className="space-y-2">
+            <h4 className="font-bold text-sm">Участники:</h4>
+            {selectedClan.members.map(mId => {
+              const member = store.getUserById(mId);
+              if (!member) return null;
+              const isLeader = selectedClan.creatorId === mId;
+              return (
+                <div key={mId} className="bg-slate-700/50 rounded-lg p-2 flex items-center justify-between">
+                  <span className="text-sm">{member.nickname} {isLeader && <span className="text-xs text-yellow-400">👑 Лидер</span>}</span>
+                  {selectedClan.creatorId === currentUser?.id && !isLeader && (
+                    <button onClick={() => transferLeadership(mId)} className="text-xs text-cyan-400 hover:underline">Передать лидера</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {selectedClan.creatorId === currentUser?.id && (
+            <div className="space-y-2">
+              {showInvite ? (
+                <div className="space-y-2">
+                  <select value={inviteUserId} onChange={e => setInviteUserId(e.target.value)} className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm">
+                    <option value="">-- Выберите друга --</option>
+                    {currentUser.friends.map(fId => {
+                      const friend = store.getUserById(fId);
+                      if (!friend || friend.clanId) return null;
+                      return <option key={fId} value={fId}>{friend.nickname}</option>;
+                    })}
+                  </select>
+                  <div className="flex gap-2">
+                    <button onClick={inviteToClan} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Пригласить</button>
+                    <button onClick={() => setShowInvite(false)} className="px-4 py-2 bg-slate-600 rounded-lg text-sm">Отмена</button>
+                  </div>
+                </div>
+              ) : (
+                <button onClick={() => setShowInvite(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><UserPlus className="w-4 h-4 inline" /> Пригласить в клан</button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {clans.map(clan => (
-          <div key={clan.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+          <div key={clan.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 hover:border-cyan-600 transition cursor-pointer" onClick={() => setSelectedClan(clan)}>
             <div className="flex items-center gap-3 mb-2">
               <span className="text-2xl">{clan.logo}</span>
               <div>
-                <div className="font-bold">{clan.name}</div>
+                <div className="font-bold">{clan.name} <span className="text-xs text-slate-400">[{clan.tag}]</span></div>
                 <div className="text-xs text-slate-400">{clan.members.length} участников</div>
               </div>
             </div>
+            {currentUser && !currentUser.clanId && currentUser.id !== 'guest' && (
+              <button onClick={(e) => { e.stopPropagation(); joinClan(clan.id); }} className="mt-2 px-3 py-1 bg-cyan-600/80 hover:bg-cyan-500 rounded text-xs">Вступить</button>
+            )}
           </div>
         ))}
       </div>
@@ -484,11 +690,6 @@ function SupportPage({ currentUser }: { currentUser: User | null }) {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [ticketNumber, setTicketNumber] = useState('');
-  const [myTickets, setMyTickets] = useState<GuestTicket[]>([]);
-
-  useEffect(() => {
-    if (currentUser) setMyTickets(store.getGuestTickets().filter(t => t.email === currentUser.email));
-  }, [currentUser]);
 
   const submitTicket = () => {
     if (!email || !subject || !message) return;
@@ -509,7 +710,7 @@ function SupportPage({ currentUser }: { currentUser: User | null }) {
       {ticketNumber && (
         <div className="bg-green-900/20 border border-green-700 rounded-xl p-4">
           <p className="text-green-400 font-bold">✓ Обращение отправлено!</p>
-          <p className="text-sm text-slate-300 mt-1">Номер обращения: <span className="font-mono text-cyan-400">{ticketNumber}</span></p>
+          <p className="text-sm text-slate-300 mt-1">Номер: <span className="font-mono text-cyan-400">{ticketNumber}</span></p>
           <p className="text-xs text-yellow-400 mt-2">⚠️ Гостевые обращения могут быть не рассмотрены</p>
         </div>
       )}
@@ -522,25 +723,160 @@ function SupportPage({ currentUser }: { currentUser: User | null }) {
         <button onClick={submitTicket} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm">Отправить</button>
         <p className="text-xs text-yellow-400">⚠️ Гостевые обращения могут быть не рассмотрены</p>
       </div>
+    </div>
+  );
+}
 
-      {myTickets.length > 0 && (
-        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
-          <h3 className="font-bold">Мои обращения</h3>
-          {myTickets.map(t => (
-            <div key={t.id} className="bg-slate-700/50 rounded-lg p-3">
-              <div className="font-mono text-xs text-cyan-400">{t.ticketNumber}</div>
-              <div className="font-medium text-sm">{t.subject}</div>
-              <div className="text-xs text-slate-400">{new Date(t.createdAt).toLocaleString()}</div>
+function ProfilePage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
+  const [addFriendSearch, setAddFriendSearch] = useState('');
+  const [friends, setFriends] = useState<User[]>([]);
+
+  useEffect(() => {
+    if (currentUser) {
+      const friendList = currentUser.friends.map(fId => store.getUserById(fId)).filter(Boolean) as User[];
+      setFriends(friendList);
+    }
+  }, [currentUser]);
+
+  if (!currentUser || currentUser.id === 'guest') {
+    return <div className="text-center py-12 text-slate-400">Войдите для просмотра профиля</div>;
+  }
+
+  const addFriend = (friendId: string) => {
+    if (!currentUser) return;
+    if (currentUser.friends.includes(friendId)) return;
+    const user = { ...currentUser, friends: [...currentUser.friends, friendId] };
+    store.saveUser(user);
+    refreshUser();
+    setAddFriendSearch('');
+  };
+
+  const removeFriend = (friendId: string) => {
+    if (!currentUser) return;
+    const user = { ...currentUser, friends: currentUser.friends.filter(f => f !== friendId) };
+    store.saveUser(user);
+    refreshUser();
+  };
+
+  const allUsers = store.getUsers().filter(u => u.role === 'player' && u.id !== currentUser.id);
+  const filteredUsers = allUsers.filter(u => u.nickname.toLowerCase().includes(addFriendSearch.toLowerCase()));
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6">
+      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-16 h-16 rounded-full bg-cyan-600 flex items-center justify-center text-2xl font-bold">
+            {currentUser.nickname[0].toUpperCase()}
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold">{currentUser.nickname}</h2>
+            <p className="text-slate-400">Уровень {currentUser.level} • {currentUser.xp} XP</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold text-cyan-400">{currentUser.gamesPlayed}</div>
+            <div className="text-xs text-slate-400">Игр</div>
+          </div>
+          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold text-green-400">{currentUser.gamesWon}</div>
+            <div className="text-xs text-slate-400">Побед</div>
+          </div>
+          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold text-red-400">{currentUser.gamesLost}</div>
+            <div className="text-xs text-slate-400">Поражений</div>
+          </div>
+          <div className="bg-slate-700/50 rounded-lg p-3 text-center">
+            <div className="text-lg font-bold text-yellow-400">{currentUser.friends.length}</div>
+            <div className="text-xs text-slate-400">Друзей</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-4">
+        <h3 className="font-bold text-lg">👥 Друзья ({friends.length})</h3>
+        
+        <div className="space-y-2">
+          {friends.map(friend => (
+            <div key={friend.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
+              <div>
+                <div className="font-medium">{friend.nickname}</div>
+                <div className="text-xs text-slate-400">Уровень {friend.level}</div>
+              </div>
+              <button onClick={() => removeFriend(friend.id)} className="text-red-400 text-xs hover:underline">Удалить</button>
             </div>
           ))}
         </div>
+
+        <div className="space-y-2">
+          <h4 className="font-bold text-sm">Добавить друга:</h4>
+          <input value={addFriendSearch} onChange={e => setAddFriendSearch(e.target.value)} placeholder="Поиск по нику..." className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {filteredUsers.filter(u => !currentUser.friends.includes(u.id)).slice(0, 5).map(u => (
+              <div key={u.id} className="bg-slate-700/30 rounded-lg p-2 flex items-center justify-between">
+                <span className="text-sm">{u.nickname}</span>
+                <button onClick={() => addFriend(u.id)} className="text-green-400 text-xs hover:underline">+ Добавить</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FederationsPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
+  const [federations, setFederations] = useState<Federation[]>([]);
+  const [showCreate, setShowCreate] = useState(false);
+  const [name, setName] = useState('');
+
+  useEffect(() => { setFederations(store.getFederations()); }, []);
+
+  const createFederation = () => {
+    if (!currentUser || !name) return;
+    const fed: Federation = {
+      id: uuidv4(), name, creatorId: currentUser.id,
+      clans: [], members: [currentUser.id],
+      wins: 0, losses: 0, createdAt: new Date().toISOString(),
+    };
+    store.saveFederation(fed);
+    setFederations(store.getFederations());
+    setShowCreate(false);
+    setName('');
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl font-bold">🏛️ Федерации</h2>
+        {currentUser && currentUser.id !== 'guest' && (
+          <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 rounded-lg text-sm"><Plus className="w-4 h-4 inline" /> Создать</button>
+        )}
+      </div>
+
+      {showCreate && (
+        <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700 space-y-3">
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Название федерации" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+          <button onClick={createFederation} className="px-4 py-2 bg-green-600 rounded-lg text-sm">Создать</button>
+        </div>
       )}
+
+      <div className="space-y-3">
+        {federations.map(fed => (
+          <div key={fed.id} className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+            <div className="font-bold text-lg">{fed.name}</div>
+            <div className="text-sm text-slate-400">{fed.clans.length} кланов • {fed.members.length} участников</div>
+          </div>
+        ))}
+        {federations.length === 0 && <p className="text-center text-slate-500 py-8">Нет федераций</p>}
+      </div>
     </div>
   );
 }
 
 function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; refreshUser: () => void }) {
-  const [tab, setTab] = useState<'users' | 'rooms' | 'tickets' | 'schools'>('users');
+  const [tab, setTab] = useState<'users' | 'rooms' | 'tickets' | 'schools' | 'clans' | 'federations' | 'faq' | 'chat' | 'settings'>('users');
   const [users, setUsers] = useState(store.getUsers());
   const [rooms, setRooms] = useState(store.getRooms());
   const [guestTickets, setGuestTickets] = useState(store.getGuestTickets());
@@ -565,11 +901,16 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold">⚙️ Админка</h2>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button onClick={() => setTab('users')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'users' ? 'bg-cyan-600' : 'bg-slate-700'}`}>👥 Пользователи</button>
         <button onClick={() => setTab('rooms')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'rooms' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🚪 Комнаты</button>
         <button onClick={() => setTab('tickets')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'tickets' ? 'bg-cyan-600' : 'bg-slate-700'}`}>📧 Тикеты</button>
         <button onClick={() => setTab('schools')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'schools' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🏫 Школы</button>
+        <button onClick={() => setTab('clans')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'clans' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🛡️ Кланы</button>
+        <button onClick={() => setTab('federations')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'federations' ? 'bg-cyan-600' : 'bg-slate-700'}`}>🏛️ Федерации</button>
+        <button onClick={() => setTab('faq')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'faq' ? 'bg-cyan-600' : 'bg-slate-700'}`}>❓ FAQ</button>
+        <button onClick={() => setTab('chat')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'chat' ? 'bg-cyan-600' : 'bg-slate-700'}`}>💬 Чат</button>
+        <button onClick={() => setTab('settings')} className={`px-3 py-2 rounded-lg text-sm ${tab === 'settings' ? 'bg-cyan-600' : 'bg-slate-700'}`}>⚙️ Настройки</button>
       </div>
 
       {tab === 'users' && (
@@ -581,7 +922,7 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
               {users.filter(u => u.role === 'player').map(u => <option key={u.id} value={u.id}>{u.nickname}</option>)}
             </select>
             <input value={banReason} onChange={e => setBanReason(e.target.value)} placeholder="Причина" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
-            <input value={banDuration} onChange={e => setBanDuration(e.target.value)} placeholder="Длительность (минут, пусто = навсегда)" type="number" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
+            <input value={banDuration} onChange={e => setBanDuration(e.target.value)} placeholder="Длительность (минут)" type="number" className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-sm" />
             <div className="flex gap-2">
               <button onClick={() => banUser(false)} className="px-4 py-2 bg-yellow-600 rounded-lg text-sm">Бан по таймеру</button>
               <button onClick={() => banUser(true)} className="px-4 py-2 bg-red-600 rounded-lg text-sm">Навсегда</button>
@@ -591,11 +932,9 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
             <h3 className="font-bold">👥 Все пользователи ({users.length})</h3>
             {users.map(u => (
-              <div key={u.id} className="bg-slate-700/50 rounded-lg p-3 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-medium">{u.nickname} <span className="text-xs text-slate-500">({u.role})</span></div>
-                  {u.banned && <span className="text-xs bg-red-600/30 text-red-400 px-2 py-0.5 rounded">ЗАБАНЕН</span>}
-                </div>
+              <div key={u.id} className="bg-slate-700/50 rounded-lg p-3">
+                <div className="text-sm font-medium">{u.nickname} <span className="text-xs text-slate-500">({u.role})</span></div>
+                {u.banned && <span className="text-xs bg-red-600/30 text-red-400 px-2 py-0.5 rounded">ЗАБАНЕН</span>}
               </div>
             ))}
           </div>
@@ -645,8 +984,57 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           ))}
         </div>
       )}
+
+      {tab === 'clans' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+          <h3 className="font-bold">🛡️ Кланы ({store.getClans().length})</h3>
+          {store.getClans().map(c => (
+            <div key={c.id} className="bg-slate-700/50 rounded-lg p-3">
+              <div className="text-sm font-medium">{c.name} [{c.tag}]</div>
+              <div className="text-xs text-slate-400">{c.members.length} участников</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'federations' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+          <h3 className="font-bold">🏛️ Федерации ({store.getFederations().length})</h3>
+          {store.getFederations().map(f => (
+            <div key={f.id} className="bg-slate-700/50 rounded-lg p-3">
+              <div className="text-sm font-medium">{f.name}</div>
+              <div className="text-xs text-slate-400">{f.clans.length} кланов</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'faq' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+          <h3 className="font-bold">❓ FAQ ({store.getQuestions().length})</h3>
+          {store.getQuestions().map(q => (
+            <div key={q.id} className="bg-slate-700/50 rounded-lg p-3">
+              <div className="text-sm font-medium">{q.title}</div>
+              <div className="text-xs text-slate-400">{q.text}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'chat' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+          <h3 className="font-bold">💬 Чат ({store.getChatMessages().length} сообщений)</h3>
+          <button onClick={() => { localStorage.setItem('skln_chat', JSON.stringify([])); alert('Чат очищен'); }} className="px-4 py-2 bg-red-600 rounded-lg text-sm">Очистить весь чат</button>
+        </div>
+      )}
+
+      {tab === 'settings' && (
+        <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-3">
+          <h3 className="font-bold">⚙️ Настройки игры</h3>
+          <p className="text-sm text-slate-400">Время на ход: {store.getSettings().turnTime} сек</p>
+          <p className="text-sm text-slate-400">XP за победу: {store.getSettings().xpPerWin}</p>
+        </div>
+      )}
     </div>
   );
 }
-
-
