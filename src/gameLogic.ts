@@ -97,6 +97,30 @@ export function getSunkShipCells(board: GameBoard): Set<string> {
   const cells = new Set<string>();
   board.ships.filter(s => s.sunk).forEach(ship => {
     ship.cells.forEach(c => cells.add(`${c.row},${c.col}`));
+    // Добавляем клетки вокруг потопленного корабля
+    ship.cells.forEach(c => {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          const nr = c.row + dr;
+          const nc = c.col + dc;
+          if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE) {
+            cells.add(`${nr},${nc}`);
+          }
+        }
+      }
+    });
+  });
+  return cells;
+}
+
+export function getDamagedShipCells(board: GameBoard): Set<string> {
+  const cells = new Set<string>();
+  board.ships.filter(s => !s.sunk && s.hits > 0).forEach(ship => {
+    ship.cells.forEach(c => {
+      if (board.shots.some(s => s.row === c.row && s.col === c.col)) {
+        cells.add(`${c.row},${c.col}`);
+      }
+    });
   });
   return cells;
 }
