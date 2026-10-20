@@ -1,11 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogIn, LogOut, User as UserIcon, Gamepad2, Swords, Crown, ChevronRight, Plus, X, Check, Send, Heart, Search, Clock, Target, Zap, Star, Menu, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { useState, useEffect, Fragment } from 'react';
+import { BrowserRouter, Routes, Route, Link, useNavigate } from 'react-router-dom';
+import { Home, Users, Trophy, MessageSquare, Shield, School, HelpCircle, Settings, LogIn, LogOut, User as UserIcon, Gamepad2, Swords, Crown, ChevronRight, Plus, Send, Heart, Star, Menu, Eye, EyeOff, Clock } from 'lucide-react';
 import { User, Game, Room, Clan, Federation, School as SchoolType, ChatMessage, Question, AdminSettings } from './types';
 import * as store from './store';
 import { generateRandomPlacement, processShot, isAllSunk, getSunkShipCells, getHitCells } from './gameLogic';
 import { v4 as uuidv4 } from 'uuid';
+
+// Simple animated wrapper using CSS
+function FadeIn({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  return <div className={`animate-[fadeIn_0.3s_ease-out] ${className}`}>{children}</div>;
+}
 
 // ============ MAIN APP ============
 export default function App() {
@@ -19,7 +23,6 @@ export default function App() {
       setCurrentUser(user);
       setBgColor(user.backgroundColor);
     }
-    // Simulate online count
     store.setOnlineCount(Math.floor(Math.random() * 50) + 20);
   }, []);
 
@@ -38,7 +41,7 @@ export default function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<LoginPage onLogin={refreshUser} />} />
             <Route path="/register" element={<RegisterPage onRegister={refreshUser} />} />
-            <Route path="/game" element={<GamePage currentUser={currentUser} />} />
+            <Route path="/game" element={<GameRedirect />} />
             <Route path="/game/:gameId" element={<GamePlayPage currentUser={currentUser} refreshUser={refreshUser} />} />
             <Route path="/profile" element={<ProfilePage currentUser={currentUser} refreshUser={refreshUser} setBgColor={setBgColor} />} />
             <Route path="/rating" element={<RatingPage />} />
@@ -153,7 +156,7 @@ function HomePage() {
   const total = store.getTotalCount();
 
   return (
-    <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-8">
+    <FadeIn className="space-y-8">
       <div className="text-center py-8">
         <h1 className="text-4xl md:text-6xl font-bold mb-4">
           <span className="text-cyan-400">SKLN</span>.МОРСКОЙ БОЙ
@@ -185,7 +188,7 @@ function HomePage() {
           <p>Если первый игрок уничтожил все корабли первым, у второго есть шанс свести партию к ничьей.</p>
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -260,7 +263,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-md mx-auto">
+    <FadeIn className="max-w-md mx-auto">
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
         <h2 className="text-2xl font-bold mb-6 text-center">Вход в игру</h2>
         
@@ -309,7 +312,7 @@ function LoginPage({ onLogin }: { onLogin: () => void }) {
           </div>
         )}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -342,7 +345,7 @@ function RegisterPage({ onRegister }: { onRegister: () => void }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-md mx-auto">
+    <FadeIn className="max-w-md mx-auto">
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
         <h2 className="text-2xl font-bold mb-6 text-center">Регистрация</h2>
         <div className="space-y-4">
@@ -364,11 +367,11 @@ function RegisterPage({ onRegister }: { onRegister: () => void }) {
             Уже есть аккаунт? <Link to="/login" className="text-cyan-400 hover:underline">Войти</Link>
           </p>
           <p className="text-center text-xs text-slate-500">
-            Или <button onClick={() => { store.setCurrentUser('guest'); onRegister(); navigate('/'); }} className="text-yellow-400 hover:underline">войти как гость</button> (без учёта результатов)
+            Или <button onClick={() => { localStorage.setItem('skln_current_user', 'guest'); onRegister(); navigate('/'); }} className="text-yellow-400 hover:underline">войти как гость</button> (без учёта результатов)
           </p>
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -395,7 +398,7 @@ function ProfilePage({ currentUser, refreshUser, setBgColor }: { currentUser: Us
   const bgColors = ['#0f172a', '#1a1a2e', '#16213e', '#0a192f', '#1b1b2f', '#2d1b69', '#1a3c40', '#2c3e50', '#1c1c1c', '#0d1117'];
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-2xl mx-auto space-y-6">
+    <FadeIn className="max-w-2xl mx-auto space-y-6">
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 rounded-full bg-cyan-600 flex items-center justify-center text-2xl font-bold">
@@ -457,18 +460,16 @@ function ProfilePage({ currentUser, refreshUser, setBgColor }: { currentUser: Us
         )}
       </div>
 
-      {/* Friends */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
         <h3 className="font-bold mb-3">Друзья</h3>
         <FriendsList currentUser={currentUser} refreshUser={refreshUser} />
       </div>
 
-      {/* Game History */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700">
         <h3 className="font-bold mb-3">История игр</h3>
         <GameHistory userId={currentUser.id} />
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -585,10 +586,8 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
       if (input !== room.password) { alert('Неверный пароль'); return; }
     }
     if (room.players.length >= room.maxPlayers) { alert('Комната заполнена'); return; }
-    room.players.push(currentUser.id);
-    store.saveRoom(room);
-    // Start game
-    startGame(currentUser.id, room.players[0] === currentUser.id && room.players.length > 1 ? room.players.find(p => p !== currentUser.id)! : room.players[0]);
+    const otherPlayer = room.players.find(p => p !== currentUser.id) || room.players[0];
+    startGame(currentUser.id, otherPlayer);
   };
 
   const startGame = (p1Id: string, p2Id: string) => {
@@ -619,7 +618,7 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6">
+    <FadeIn className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Комнаты для игры</h2>
         <div className="flex gap-2">
@@ -665,7 +664,7 @@ function RoomsPage({ currentUser }: { currentUser: User | null }) {
           );
         })}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -675,16 +674,11 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   const gameId = window.location.pathname.split('/').pop()!;
   const [game, setGame] = useState<Game | null>(null);
   const [turnTimer, setTurnTimer] = useState(0);
-  const [showPlacement, setShowPlacement] = useState(true);
-  const [myBoard, setMyBoard] = useState(() => generateRandomPlacement());
   const [offerDraw, setOfferDraw] = useState(false);
 
   useEffect(() => {
     const g = store.getGames().find(x => x.id === gameId);
-    if (g) {
-      setGame(g);
-      setShowPlacement(false);
-    }
+    if (g) setGame(g);
   }, [gameId]);
 
   useEffect(() => {
@@ -694,7 +688,6 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
     const interval = setInterval(() => {
       setTurnTimer(prev => {
         if (prev <= 1) {
-          // Miss turn
           handleMissTurn();
           return settings.turnTime;
         }
@@ -713,16 +706,15 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
     if (!game || !isMyTurn || game.status !== 'playing') return;
     
     const targetBoard = currentUser?.id === game.player1Id ? game.player2Board : game.player1Board;
-    const result = processShot(targetBoard, row, col);
     
-    if (result.hit === false && targetBoard.shots.some(s => s.row === row && s.col === col) && !result.sunk) {
-      // Already shot here
+    // Check if already shot
+    if (targetBoard.shots.some(s => s.row === row && s.col === col) || targetBoard.missedShots.some(s => s.row === row && s.col === col)) {
       return;
     }
 
+    const result = processShot(targetBoard, row, col);
     game.shotsHistory.push({ playerId: currentUser!.id, row, col, hit: result.hit, time: new Date().toISOString() });
 
-    // Update user stats
     if (currentUser && currentUser.id !== 'guest') {
       const user = store.getUserById(currentUser.id)!;
       user.totalShots++;
@@ -734,14 +726,12 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
       game.status = 'finished';
       game.winner = currentUser!.id;
       game.endTime = new Date().toISOString();
-      // Update winner stats
       if (currentUser && currentUser.id !== 'guest') {
         const user = store.getUserById(currentUser.id)!;
         user.gamesPlayed++;
         user.gamesWon++;
         const settings = store.getSettings();
         user.xp += settings.xpPerWin;
-        // Level up check
         const thresholds = settings.levelThresholds;
         while (user.level < thresholds.length && user.xp >= thresholds[user.level]) {
           user.level++;
@@ -749,7 +739,6 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
         store.saveUser(user);
         refreshUser();
       }
-      // Update loser stats
       if (opponentId && opponentId !== 'ai') {
         const loser = store.getUserById(opponentId);
         if (loser) {
@@ -764,12 +753,8 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
     }
 
     if (!result.hit) {
-      // Switch turn
       game.currentTurn = opponentId!;
-      game.player1MissedTurns = currentUser?.id === game.player2Id ? game.player1MissedTurns : 0;
-      game.player2MissedTurns = currentUser?.id === game.player1Id ? game.player2MissedTurns : 0;
     } else {
-      // Reset missed turns on hit
       if (currentUser?.id === game.player1Id) game.player1MissedTurns = 0;
       else game.player2MissedTurns = 0;
     }
@@ -777,7 +762,6 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
     store.saveGame(game);
     setGame({ ...game });
 
-    // AI turn
     if (isAI && game.currentTurn === 'ai' && game.status === 'playing') {
       setTimeout(() => aiTurn(), 1000);
     }
@@ -862,7 +846,6 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
 
   const handleDrawOffer = () => {
     setOfferDraw(true);
-    // Simulate opponent response
     setTimeout(() => {
       if (game) {
         game.status = 'finished';
@@ -887,7 +870,7 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   if (game.status === 'finished') {
     const won = game.winner === currentUser?.id;
     return (
-      <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="max-w-lg mx-auto text-center space-y-6 py-12">
+      <FadeIn className="max-w-lg mx-auto text-center space-y-6 py-12">
         <div className={`text-6xl ${won ? 'animate-bounce' : ''}`}>{won ? '🏆' : game.isDraw ? '🤝' : '💀'}</div>
         <h2 className="text-3xl font-bold">{won ? 'Победа!' : game.isDraw ? 'Ничья!' : 'Поражение'}</h2>
         <p className="text-slate-400">Противник: {opponent?.nickname || 'ИИ'}</p>
@@ -895,7 +878,7 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
           <button onClick={() => navigate('/rooms')} className="px-6 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg transition">Новая игра</button>
           <button onClick={() => navigate('/')} className="px-6 py-2 bg-slate-600 hover:bg-slate-500 rounded-lg transition">На главную</button>
         </div>
-      </motion.div>
+      </FadeIn>
     );
   }
 
@@ -903,7 +886,7 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
   const enemyBoardData = currentUser?.id === game.player1Id ? game.player2Board : game.player1Board;
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+    <FadeIn className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold">vs {opponent?.nickname || 'ИИ'}</h2>
@@ -921,26 +904,23 @@ function GamePlayPage({ currentUser, refreshUser }: { currentUser: User | null; 
       <div className="flex flex-wrap gap-2">
         <button onClick={handleSurrender} className="px-3 py-1.5 bg-red-600/80 hover:bg-red-500 rounded-lg text-sm transition">🏳️ Сдаться</button>
         <button onClick={handleDrawOffer} disabled={offerDraw} className="px-3 py-1.5 bg-yellow-600/80 hover:bg-yellow-500 disabled:opacity-50 rounded-lg text-sm transition">🤝 Предложить ничью</button>
-        <button onClick={() => { setMyBoard(generateRandomPlacement()); }} className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 rounded-lg text-sm transition">🔄 Расстановка</button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Enemy board */}
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
           <h3 className="text-sm font-medium text-slate-400 mb-2">Поле противника</h3>
-          <GameGrid board={enemyBoardData} onCellClick={isMyTurn ? handleShot : undefined} isEnemy />
+          <GameGrid board={enemyBoardData} onCellClick={isMyTurn ? handleShot : undefined} />
         </div>
-        {/* My board */}
         <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
           <h3 className="text-sm font-medium text-slate-400 mb-2">Ваше поле</h3>
           <GameGrid board={myBoardData} showShips />
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
-function GameGrid({ board, onCellClick, isEnemy, showShips }: { board: any; onCellClick?: (row: number, col: number) => void; isEnemy?: boolean; showShips?: boolean }) {
+function GameGrid({ board, onCellClick, showShips }: { board: any; onCellClick?: (row: number, col: number) => void; showShips?: boolean }) {
   const sunkCells = getSunkShipCells(board);
   const hitCells = getHitCells(board);
   const labels = ['А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'З', 'И', 'К'];
@@ -953,7 +933,7 @@ function GameGrid({ board, onCellClick, isEnemy, showShips }: { board: any; onCe
           <div key={i} className="w-6 h-6 flex items-center justify-center text-xs text-slate-500">{i + 1}</div>
         ))}
         {Array.from({ length: 10 }, (_, row) => (
-          <React.Fragment key={row}>
+          <Fragment key={row}>
             <div className="w-6 h-6 flex items-center justify-center text-xs text-slate-500">{labels[row]}</div>
             {Array.from({ length: 10 }, (_, col) => {
               const key = `${row},${col}`;
@@ -977,13 +957,12 @@ function GameGrid({ board, onCellClick, isEnemy, showShips }: { board: any; onCe
 
               return (
                 <div key={col} className={cellClass} onClick={() => onCellClick?.(row, col)}>
-                  {isShot && '✕'}
+                  {(isShot || isSunk) && '✕'}
                   {isMiss && '•'}
-                  {isSunk && '✕'}
                 </div>
               );
             })}
-          </React.Fragment>
+          </Fragment>
         ))}
       </div>
     </div>
@@ -998,7 +977,7 @@ function RatingPage() {
   const feds = store.getFederations().sort((a, b) => b.wins - a.wins);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6">
+    <FadeIn className="max-w-3xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold flex items-center gap-2"><Trophy className="w-6 h-6 text-yellow-400" /> Рейтинг</h2>
       
       <div className="flex gap-2">
@@ -1062,7 +1041,7 @@ function RatingPage() {
           </table>
         )}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -1089,7 +1068,7 @@ function ChatPage({ currentUser }: { currentUser: User | null }) {
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-2xl mx-auto">
+    <FadeIn className="max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold mb-4 flex items-center gap-2"><MessageSquare className="w-6 h-6 text-cyan-400" /> Общий чат</h2>
       
       <div className="bg-slate-800/50 rounded-xl border border-slate-700 flex flex-col h-[500px]">
@@ -1111,7 +1090,7 @@ function ChatPage({ currentUser }: { currentUser: User | null }) {
           <button onClick={sendMessage} disabled={!currentUser || !text.trim()} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 rounded-lg transition"><Send className="w-4 h-4" /></button>
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -1159,7 +1138,7 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   const colors = ['#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff', '#ff8800', '#8800ff', '#ffffff', '#ff4444'];
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6">
+    <FadeIn className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold flex items-center gap-2"><Shield className="w-6 h-6 text-cyan-400" /> Кланы</h2>
         {currentUser && !currentUser.clanId && (
@@ -1220,7 +1199,7 @@ function ClansPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         ))}
       </div>
       {clans.length === 0 && <p className="text-center text-slate-500 py-8">Кланов пока нет</p>}
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -1246,7 +1225,7 @@ function FederationsPage({ currentUser, refreshUser }: { currentUser: User | nul
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6">
+    <FadeIn className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Федерации</h2>
         {currentUser && (
@@ -1277,7 +1256,7 @@ function FederationsPage({ currentUser, refreshUser }: { currentUser: User | nul
         ))}
         {feds.length === 0 && <p className="text-center text-slate-500 py-8">Федераций пока нет</p>}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -1314,7 +1293,7 @@ function SchoolsPage({ currentUser, refreshUser }: { currentUser: User | null; r
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6">
+    <FadeIn className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold flex items-center gap-2"><School className="w-6 h-6 text-cyan-400" /> Школы</h2>
         {currentUser && !currentUser.schoolId && (
@@ -1351,7 +1330,7 @@ function SchoolsPage({ currentUser, refreshUser }: { currentUser: User | null; r
           </div>
         ))}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -1398,7 +1377,7 @@ function FAQPage({ currentUser }: { currentUser: User | null }) {
     .sort((a, b) => b.likes.length - a.likes.length);
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-3xl mx-auto space-y-6">
+    <FadeIn className="max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold flex items-center gap-2"><HelpCircle className="w-6 h-6 text-cyan-400" /> Вопросы и отзывы</h2>
         {currentUser && <button onClick={() => setShowCreate(true)} className="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg text-sm transition"><Plus className="w-4 h-4 inline" /> Задать вопрос</button>}
@@ -1444,7 +1423,7 @@ function FAQPage({ currentUser }: { currentUser: User | null }) {
         ))}
         {filtered.length === 0 && <p className="text-center text-slate-500 py-8">Вопросов пока нет</p>}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
@@ -1468,10 +1447,9 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
     const req = reqs.find(r => r.id === reqId)!;
     req.status = 'approved';
     store.saveResetRequest(req);
-    // Reset user password
     const user = store.getUserByPhone(req.phone);
     if (user) {
-      user.password = ''; // Will need to set new password
+      user.password = '';
       store.saveUser(user);
     }
     setResetRequests(store.getResetRequests());
@@ -1502,10 +1480,9 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
   };
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-4xl mx-auto space-y-6">
+    <FadeIn className="max-w-4xl mx-auto space-y-6">
       <h2 className="text-2xl font-bold flex items-center gap-2"><Settings className="w-6 h-6 text-cyan-400" /> Панель администратора</h2>
 
-      {/* Game Settings */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-4">
         <h3 className="font-bold text-lg">⚙️ Настройки игры</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1533,7 +1510,6 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         <button onClick={saveSettings} className="px-4 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm transition">Сохранить настройки</button>
       </div>
 
-      {/* Password Reset Requests */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-4">
         <h3 className="font-bold text-lg">🔑 Заявки на сброс пароля</h3>
         {resetRequests.filter(r => r.status === 'pending').length === 0 && <p className="text-slate-500 text-sm">Нет заявок</p>}
@@ -1551,7 +1527,6 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         ))}
       </div>
 
-      {/* School Approvals */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-4">
         <h3 className="font-bold text-lg">🏫 Заявки на создание школ</h3>
         {pendingSchools.length === 0 && <p className="text-slate-500 text-sm">Нет заявок</p>}
@@ -1566,7 +1541,6 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
         ))}
       </div>
 
-      {/* FAQ Management */}
       <div className="bg-slate-800/50 rounded-xl p-6 border border-slate-700 space-y-4">
         <h3 className="font-bold text-lg">⭐ Управление FAQ</h3>
         {store.getQuestions().map(q => (
@@ -1578,12 +1552,12 @@ function AdminPage({ currentUser, refreshUser }: { currentUser: User | null; ref
           </div>
         ))}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 
-// ============ GAME PAGE (redirect) ============
-function GamePage({ currentUser }: { currentUser: User | null }) {
+// ============ GAME REDIRECT ============
+function GameRedirect() {
   const navigate = useNavigate();
   useEffect(() => { navigate('/rooms'); }, []);
   return <div>Перенаправление...</div>;

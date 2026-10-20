@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @layer base {
   * {
     scrollbar-width: thin;
@@ -28,23 +33,4 @@
   input[type="checkbox"] {
     accent-color: #06b6d4;
   }
-}
-
-@layer components {
-  .game-cell {
-    transition: all 0.15s ease;
-  }
-  
-  .game-cell:hover {
-    transform: scale(1.1);
-  }
-}
-
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 5px rgba(6, 182, 212, 0.3); }
-  50% { box-shadow: 0 0 20px rgba(6, 182, 212, 0.6); }
-}
-
-.glow-pulse {
-  animation: pulse-glow 2s ease-in-out infinite;
 }
